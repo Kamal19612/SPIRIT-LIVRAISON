@@ -12,12 +12,14 @@ import 'screens/login_screen.dart';
 import 'services/location_service.dart';
 import 'services/notification_service.dart';
 import 'services/polling_service.dart';
+import 'services/supabase_relay_service.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
   await LocalDatabase.instance.init();
   await NotificationService.instance.init();
+  await SupabaseRelayService.instance.startIfConfigured();
 
   final authProvider = AuthProvider();
   await authProvider.init();
