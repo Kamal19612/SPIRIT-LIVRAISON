@@ -107,7 +107,7 @@ class _LoginScreenState extends State<LoginScreen> {
                         const SizedBox(height: 6),
                         _buildTextField(
                           controller: _usernameController,
-                          hint: 'admin ou livreur',
+                          hint: 'Votre identifiant',
                           icon: Icons.person_outline,
                         ),
                         const SizedBox(height: 16),
@@ -116,12 +116,6 @@ class _LoginScreenState extends State<LoginScreen> {
                         _buildPasswordField(),
                         const SizedBox(height: 20),
                         _buildSubmitButton(auth.isLoading, primary),
-                        const SizedBox(height: 16),
-                        Text(
-                          'admin / admin123  •  livreur / livreur123',
-                          textAlign: TextAlign.center,
-                          style: const TextStyle(color: _gray500, fontSize: 11),
-                        ),
                       ],
                     ),
                   ),

@@ -46,7 +46,7 @@ class SupabaseRelayService {
       table: 'webhook_events',
       callback: _handlePostgresInsert,
     );
-    await _channel!.subscribe();
+    _channel!.subscribe();
 
     _started = true;
     debugPrint('SupabaseRelayService: abonné aux INSERT sur webhook_events ($url)');
@@ -61,10 +61,7 @@ class SupabaseRelayService {
 
   Future<void> _handlePostgresInsert(PostgresChangePayload payload) async {
     try {
-      final raw = payload.newRecord;
-      final rec = raw == null
-          ? <String, dynamic>{}
-          : Map<String, dynamic>.from(raw);
+      final rec = Map<String, dynamic>.from(payload.newRecord);
       if (rec.isEmpty) return;
 
       final event = rec['event'] as String?;
@@ -86,7 +83,7 @@ class SupabaseRelayService {
         'event': event,
         'version': '1.0',
         if (createdAt != null) 'timestamp': createdAt.toString(),
-        if (orderMap != null) 'order': orderMap,
+        'order':? orderMap,
       };
 
       await WebhookEventHandler.instance.handleWebhookEvent(bridge);
@@ -101,6 +98,7 @@ class SupabaseRelayService {
           await NotificationService.instance.showNewOrderNotification(
             orderNumber,
             webhookPayload: bridge,
+            processWebhookPayload: false,
           );
         }
       }

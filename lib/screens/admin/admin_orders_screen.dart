@@ -45,17 +45,6 @@ class _AdminOrdersScreenState extends State<AdminOrdersScreen> {
     }
   }
 
-  void _showAddOrderDialog() {
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      builder: (_) => const _AddOrderSheet(),
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
     final admin = context.watch<AdminProvider>();
@@ -65,6 +54,37 @@ class _AdminOrdersScreenState extends State<AdminOrdersScreen> {
       backgroundColor: const Color(0xFFF9FAFB),
       body: Column(
         children: [
+          // ── Info synchronisation ─────────────────────────────────────
+          Container(
+            width: double.infinity,
+            margin: const EdgeInsets.fromLTRB(12, 8, 12, 0),
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            decoration: BoxDecoration(
+              color: const Color(0xFFEFF6FF),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: const Color(0xFFBFDBFE)),
+            ),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Icon(Icons.cloud_sync_outlined,
+                    size: 18, color: Theme.of(context).colorScheme.primary),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    'Les commandes sont importées automatiquement (webhooks et intégrations). '
+                    'Aucune saisie manuelle n\'est nécessaire.',
+                    style: TextStyle(
+                      fontSize: 12,
+                      height: 1.35,
+                      color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.95),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+
           // ── Filtres ────────────────────────────────────────────────────
           Container(
             color: Colors.white,
@@ -224,167 +244,6 @@ class _AdminOrdersScreenState extends State<AdminOrdersScreen> {
                       ),
           ),
         ],
-      ),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: _showAddOrderDialog,
-        icon: const Icon(Icons.add),
-        label: const Text('Nouvelle commande'),
-        backgroundColor: Theme.of(context).colorScheme.primary,
-        foregroundColor: Colors.white,
-      ),
-    );
-  }
-}
-
-// ── Bottom Sheet : Créer une commande ───────────────────────────────────────
-
-class _AddOrderSheet extends StatefulWidget {
-  const _AddOrderSheet();
-
-  @override
-  State<_AddOrderSheet> createState() => _AddOrderSheetState();
-}
-
-class _AddOrderSheetState extends State<_AddOrderSheet> {
-  final _formKey    = GlobalKey<FormState>();
-  final _nameCtrl   = TextEditingController();
-  final _phoneCtrl  = TextEditingController();
-  final _addrCtrl   = TextEditingController();
-  final _latCtrl    = TextEditingController();
-  final _lngCtrl    = TextEditingController();
-  final _totalCtrl  = TextEditingController();
-  final _codeCtrl   = TextEditingController();
-  bool _isSaving    = false;
-  String? _error;
-
-  @override
-  void dispose() {
-    _nameCtrl.dispose(); _phoneCtrl.dispose(); _addrCtrl.dispose();
-    _latCtrl.dispose(); _lngCtrl.dispose();
-    _totalCtrl.dispose(); _codeCtrl.dispose();
-    super.dispose();
-  }
-
-  Future<void> _submit() async {
-    if (!_formKey.currentState!.validate()) return;
-    setState(() { _isSaving = true; _error = null; });
-    try {
-      await context.read<AdminProvider>().createOrder(
-        customerName:      _nameCtrl.text.trim(),
-        customerPhone:     _phoneCtrl.text.trim(),
-        customerAddress:   _addrCtrl.text.trim(),
-        customerLatitude:  double.tryParse(_latCtrl.text.trim()),
-        customerLongitude: double.tryParse(_lngCtrl.text.trim()),
-        total:             double.parse(_totalCtrl.text.trim().replaceAll(',', '.')),
-        confirmationCode:  _codeCtrl.text.trim(),
-      );
-      if (mounted) Navigator.pop(context);
-    } catch (e) {
-      setState(() { _error = e.toString(); _isSaving = false; });
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: EdgeInsets.fromLTRB(
-          20, 20, 20, MediaQuery.of(context).viewInsets.bottom + 20),
-      child: Form(
-        key: _formKey,
-        child: SingleChildScrollView(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Text('Nouvelle commande',
-                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800)),
-              const SizedBox(height: 16),
-              if (_error != null)
-                Container(
-                  margin: const EdgeInsets.only(bottom: 12),
-                  padding: const EdgeInsets.all(10),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFFEF2F2),
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: Text(_error!,
-                      style: const TextStyle(color: Color(0xFFDC2626), fontSize: 12)),
-                ),
-              _Field(ctrl: _nameCtrl,  label: 'Nom client *',     hint: 'Jean Dupont'),
-              _Field(ctrl: _phoneCtrl, label: 'Téléphone *',      hint: '+224 6XX XXX XXX'),
-              _Field(ctrl: _addrCtrl,  label: 'Adresse livraison *', hint: 'Kaloum, Conakry'),
-              Row(children: [
-                Expanded(child: _Field(ctrl: _latCtrl, label: 'Latitude', hint: '9.5370', keyboardType: TextInputType.number, required: false)),
-                const SizedBox(width: 12),
-                Expanded(child: _Field(ctrl: _lngCtrl, label: 'Longitude', hint: '-13.677', keyboardType: TextInputType.number, required: false)),
-              ]),
-              _Field(ctrl: _totalCtrl, label: 'Montant total (F) *', hint: '50000', keyboardType: TextInputType.number),
-              _Field(ctrl: _codeCtrl,  label: 'Code de validation', hint: '1234 (optionnel)', required: false),
-              const SizedBox(height: 8),
-              ElevatedButton(
-                onPressed: _isSaving ? null : _submit,
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Theme.of(context).colorScheme.primary,
-                  foregroundColor: Colors.white,
-                  padding: const EdgeInsets.symmetric(vertical: 14),
-                  shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12)),
-                ),
-                child: _isSaving
-                    ? const SizedBox(
-                        height: 20, width: 20,
-                        child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-                    : const Text('Créer la commande',
-                        style: TextStyle(fontWeight: FontWeight.w700)),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _Field extends StatelessWidget {
-  final TextEditingController ctrl;
-  final String label;
-  final String hint;
-  final TextInputType keyboardType;
-  final bool required;
-
-  const _Field({
-    required this.ctrl,
-    required this.label,
-    required this.hint,
-    this.keyboardType = TextInputType.text,
-    this.required = true,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 12),
-      child: TextFormField(
-        controller: ctrl,
-        keyboardType: keyboardType,
-        decoration: InputDecoration(
-          labelText: label,
-          hintText: hint,
-          filled: true,
-          fillColor: const Color(0xFFF9FAFB),
-          border: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(10),
-            borderSide: const BorderSide(color: Color(0xFFE5E7EB)),
-          ),
-          enabledBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(10),
-            borderSide: const BorderSide(color: Color(0xFFE5E7EB)),
-          ),
-          contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
-        ),
-        validator: required
-            ? (v) => (v == null || v.trim().isEmpty) ? 'Champ requis' : null
-            : null,
       ),
     );
   }

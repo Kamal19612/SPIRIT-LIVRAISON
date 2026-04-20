@@ -6,8 +6,6 @@ import '../database/orders_dao.dart';
 import '../models/external_source_model.dart';
 import '../models/order_model.dart';
 import '../models/user_model.dart';
-import '../services/assignment_service.dart';
-import '../services/notification_service.dart';
 import '../services/polling_service.dart';
 
 class AdminProvider extends ChangeNotifier {
@@ -50,8 +48,45 @@ class AdminProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> createDriver(String username, String password) async {
-    await DriversDao.instance.createDriver(username, password);
+  /// Retourne le nom d’utilisateur généré (connexion livreur).
+  Future<String> createDriver({
+    required String lastName,
+    required String firstName,
+    required String phone,
+    required String password,
+    String? cnibImagePath,
+    String? cnibOcrText,
+    String? cnibNationalId,
+    String? cnibSerial,
+    String? birthDate,
+    String? birthPlace,
+    String? gender,
+    String? profession,
+    String? cnibIssueDate,
+    String? cnibExpiryDate,
+  }) async {
+    final username = await DriversDao.instance.createDriver(
+      lastName: lastName,
+      firstName: firstName,
+      phone: phone,
+      password: password,
+      cnibImagePath: cnibImagePath,
+      cnibOcrText: cnibOcrText,
+      cnibNationalId: cnibNationalId,
+      cnibSerial: cnibSerial,
+      birthDate: birthDate,
+      birthPlace: birthPlace,
+      gender: gender,
+      profession: profession,
+      cnibIssueDate: cnibIssueDate,
+      cnibExpiryDate: cnibExpiryDate,
+    );
+    await loadDrivers();
+    return username;
+  }
+
+  Future<void> deleteDriver(int id) async {
+    await DriversDao.instance.deleteDriver(id);
     await loadDrivers();
   }
 
@@ -65,51 +100,6 @@ class AdminProvider extends ChangeNotifier {
   Future<void> loadOrders() async {
     _orders = await OrdersDao.instance.getAllOrders();
     notifyListeners();
-  }
-
-  Future<void> createOrder({
-    required String customerName,
-    required String customerPhone,
-    required String customerAddress,
-    double? customerLatitude,
-    double? customerLongitude,
-    required double total,
-    String? confirmationCode,
-    String sourcePlatform = 'manual',
-  }) async {
-    final ts = DateTime.now();
-    final orderNumber = 'ORD-${ts.millisecondsSinceEpoch ~/ 1000}';
-    final order = Order(
-      id: ts.millisecondsSinceEpoch ~/ 1000,
-      orderNumber: orderNumber,
-      customerName: customerName,
-      customerPhone: customerPhone,
-      customerAddress: customerAddress,
-      customerLatitude: customerLatitude,
-      customerLongitude: customerLongitude,
-      subtotal: total,
-      tax: 0,
-      total: total,
-      status: 'CONFIRMED',
-      createdAt: ts.toIso8601String(),
-      confirmationCode:
-          (confirmationCode?.isNotEmpty ?? false) ? confirmationCode : null,
-      sourcePlatform: sourcePlatform,
-    );
-
-    await OrdersDao.instance.insertOrder(order);
-
-    // Attribution aux 5 livreurs les plus proches (si coordonnées disponibles)
-    if (customerLatitude != null && customerLongitude != null) {
-      final closest = await AssignmentService.instance
-          .findClosestDrivers(customerLatitude, customerLongitude);
-      if (closest.isNotEmpty) {
-        await AssignmentService.instance.createAssignments(order.id, closest);
-      }
-    }
-
-    await NotificationService.instance.showNewOrderNotification(orderNumber);
-    await loadOrders();
   }
 
   // ── Sources externes (intégrations) ───────────────────────────────────────

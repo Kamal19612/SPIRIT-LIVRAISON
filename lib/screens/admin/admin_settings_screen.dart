@@ -49,11 +49,12 @@ class _AppConfigTab extends StatefulWidget {
 }
 
 class _AppConfigTabState extends State<_AppConfigTab> {
-  final _nameCtrl    = TextEditingController();
-  final _logoCtrl    = TextEditingController();
-  final _colorCtrl   = TextEditingController();
-  final _phoneCtrl   = TextEditingController();
-  final _addressCtrl = TextEditingController();
+  final _nameCtrl     = TextEditingController();
+  final _logoCtrl     = TextEditingController();
+  final _colorCtrl    = TextEditingController();
+  final _phoneCtrl    = TextEditingController();
+  final _emailCtrl    = TextEditingController();
+  final _whatsappCtrl = TextEditingController();
   bool _isSaving = false;
   bool _initialized = false;
 
@@ -62,19 +63,24 @@ class _AppConfigTabState extends State<_AppConfigTab> {
     super.didChangeDependencies();
     if (!_initialized) {
       final config = context.read<AppConfigProvider>();
-      _nameCtrl.text    = config.appName;
-      _logoCtrl.text    = config.logoUrl;
-      _colorCtrl.text   = config.primaryColorHex;
-      _phoneCtrl.text   = config.contactPhone;
-      _addressCtrl.text = config.contactAddress;
+      _nameCtrl.text      = config.appName;
+      _logoCtrl.text      = config.logoUrl;
+      _colorCtrl.text     = config.primaryColorHex;
+      _phoneCtrl.text     = config.contactPhone;
+      _emailCtrl.text     = config.contactEmail;
+      _whatsappCtrl.text = config.supportWhatsapp;
       _initialized = true;
     }
   }
 
   @override
   void dispose() {
-    _nameCtrl.dispose(); _logoCtrl.dispose(); _colorCtrl.dispose();
-    _phoneCtrl.dispose(); _addressCtrl.dispose();
+    _nameCtrl.dispose();
+    _logoCtrl.dispose();
+    _colorCtrl.dispose();
+    _phoneCtrl.dispose();
+    _emailCtrl.dispose();
+    _whatsappCtrl.dispose();
     super.dispose();
   }
 
@@ -82,11 +88,12 @@ class _AppConfigTabState extends State<_AppConfigTab> {
     setState(() => _isSaving = true);
     try {
       await context.read<AppConfigProvider>().save(
-        appName:         _nameCtrl.text.trim(),
-        logoUrl:         _logoCtrl.text.trim(),
-        primaryColorHex: _colorCtrl.text.trim(),
-        contactPhone:    _phoneCtrl.text.trim(),
-        contactAddress:  _addressCtrl.text.trim(),
+        appName:           _nameCtrl.text.trim(),
+        logoUrl:           _logoCtrl.text.trim(),
+        primaryColorHex:   _colorCtrl.text.trim(),
+        contactPhone:      _phoneCtrl.text.trim(),
+        contactEmail:      _emailCtrl.text.trim(),
+        supportWhatsapp:   _whatsappCtrl.text.trim(),
       );
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -116,6 +123,21 @@ class _AppConfigTabState extends State<_AppConfigTab> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: const Color(0xFFF0FDF4),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: const Color(0xFFBBF7D0)),
+            ),
+            child: const Text(
+              'Ces réglages définissent l’identité affichée aux livreurs et les coordonnées '
+              'utiles pour l’administration (support, contact).',
+              style: TextStyle(fontSize: 12, color: Color(0xFF166534), height: 1.35),
+            ),
+          ),
+          const SizedBox(height: 16),
+
           // ── Aperçu logo ──────────────────────────────────────────────
           Center(
             child: Stack(
@@ -203,21 +225,30 @@ class _AppConfigTabState extends State<_AppConfigTab> {
           const SizedBox(height: 16),
 
           _Section(
-            title: 'Contact',
+            title: 'Support & administration',
             children: [
               _SettingField(
                 ctrl: _phoneCtrl,
-                label: 'Téléphone',
+                label: 'Téléphone support',
                 icon: Icons.phone_outlined,
                 hint: '+224 6XX XXX XXX',
                 keyboardType: TextInputType.phone,
               ),
               const SizedBox(height: 12),
               _SettingField(
-                ctrl: _addressCtrl,
-                label: 'Adresse',
-                icon: Icons.location_on_outlined,
-                hint: 'Kaloum, Conakry',
+                ctrl: _emailCtrl,
+                label: 'Email administrateur / support',
+                icon: Icons.email_outlined,
+                hint: 'support@exemple.com',
+                keyboardType: TextInputType.emailAddress,
+              ),
+              const SizedBox(height: 12),
+              _SettingField(
+                ctrl: _whatsappCtrl,
+                label: 'WhatsApp support (optionnel)',
+                icon: Icons.chat_outlined,
+                hint: '+224 6XX XXX XXX',
+                keyboardType: TextInputType.phone,
               ),
             ],
           ),
@@ -251,8 +282,19 @@ class _AppConfigTabState extends State<_AppConfigTab> {
 class _IntegrationsTab extends StatelessWidget {
   const _IntegrationsTab();
 
-  void _showAddSourceDialog(BuildContext context) {
-    showDialog(context: context, builder: (_) => const _AddSourceDialog());
+  void _showAddSourceSheet(BuildContext context) {
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) => Padding(
+        padding: EdgeInsets.only(bottom: MediaQuery.of(ctx).viewInsets.bottom),
+        child: const _AddSourceSheet(),
+      ),
+    );
   }
 
   @override
@@ -260,48 +302,108 @@ class _IntegrationsTab extends StatelessWidget {
     final admin   = context.watch<AdminProvider>();
     final polling = context.watch<PollingService>();
     final sources = admin.sources;
+    final primary = Theme.of(context).colorScheme.primary;
+
+    Widget introCard() => Padding(
+          padding: const EdgeInsets.fromLTRB(12, 12, 12, 0),
+          child: Container(
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              color: const Color(0xFFEFF6FF),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: const Color(0xFFBFDBFE)),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Icon(Icons.hub_outlined, size: 20, color: primary),
+                    const SizedBox(width: 8),
+                    Text(
+                      'Intégrations & commandes',
+                      style: TextStyle(
+                        fontWeight: FontWeight.w800,
+                        fontSize: 13,
+                        color: primary,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                const Text(
+                  'Les commandes sont créées automatiquement à partir des sources externes. '
+                  'Le mode recommandé est le webhook (votre boutique ou serveur relais envoie chaque commande). '
+                  'Le mode REST sert à interroger périodiquement une API si vous ne pouvez pas utiliser de webhook.',
+                  style: TextStyle(
+                    fontSize: 12,
+                    height: 1.4,
+                    color: Color(0xFF1E40AF),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
 
     return Scaffold(
       backgroundColor: const Color(0xFFF9FAFB),
       body: sources.isEmpty
-          ? Center(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  const Icon(Icons.cloud_off, size: 56, color: Color(0xFFD1D5DB)),
-                  const SizedBox(height: 12),
-                  const Text(
-                    'Aucune intégration configurée',
-                    style: TextStyle(color: Color(0xFF6B7280), fontSize: 14),
-                  ),
-                  const SizedBox(height: 16),
-                  ElevatedButton.icon(
-                    onPressed: () => _showAddSourceDialog(context),
-                    icon: const Icon(Icons.add),
-                    label: const Text('Ajouter une source'),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Theme.of(context).colorScheme.primary,
-                      foregroundColor: Colors.white,
+          ? Column(
+              children: [
+                introCard(),
+                Expanded(
+                  child: Center(
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        const Icon(Icons.cloud_off,
+                            size: 56, color: Color(0xFFD1D5DB)),
+                        const SizedBox(height: 12),
+                        const Text(
+                          'Aucune intégration configurée',
+                          style: TextStyle(
+                              color: Color(0xFF6B7280), fontSize: 14),
+                        ),
+                        const SizedBox(height: 16),
+                        ElevatedButton.icon(
+                          onPressed: () => _showAddSourceSheet(context),
+                          icon: const Icon(Icons.add),
+                          label: const Text('Ajouter une source'),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: primary,
+                            foregroundColor: Colors.white,
+                          ),
+                        ),
+                      ],
                     ),
                   ),
-                ],
-              ),
+                ),
+              ],
             )
-          : ListView.builder(
-              padding: const EdgeInsets.all(12),
-              itemCount: sources.length,
-              itemBuilder: (_, i) => _SourceTile(
-                source: sources[i],
-                state: polling.stateFor(sources[i].id ?? -1),
-              ),
+          : Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                introCard(),
+                Expanded(
+                  child: ListView.builder(
+                    padding: const EdgeInsets.all(12),
+                    itemCount: sources.length,
+                    itemBuilder: (_, i) => _SourceTile(
+                      source: sources[i],
+                      state: polling.stateFor(sources[i].id ?? -1),
+                    ),
+                  ),
+                ),
+              ],
             ),
       floatingActionButton: sources.isEmpty
           ? null
           : FloatingActionButton.extended(
-              onPressed: () => _showAddSourceDialog(context),
+              onPressed: () => _showAddSourceSheet(context),
               icon: const Icon(Icons.add),
-              label: const Text('Ajouter'),
-              backgroundColor: Theme.of(context).colorScheme.primary,
+              label: const Text('Nouvelle intégration'),
+              backgroundColor: primary,
               foregroundColor: Colors.white,
             ),
     );
@@ -1022,64 +1124,97 @@ class _SheetSection extends StatelessWidget {
   }
 }
 
-// ── Dialog : Ajouter une intégration ────────────────────────────────────────
+// ── Feuille : Nouvelle intégration (même présentation que les autres feuilles) ─
 
-class _AddSourceDialog extends StatefulWidget {
-  const _AddSourceDialog();
+class _AddSourceSheet extends StatefulWidget {
+  const _AddSourceSheet();
 
   @override
-  State<_AddSourceDialog> createState() => _AddSourceDialogState();
+  State<_AddSourceSheet> createState() => _AddSourceSheetState();
 }
 
-class _AddSourceDialogState extends State<_AddSourceDialog> {
-  final _nameCtrl   = TextEditingController();
-  final _urlCtrl    = TextEditingController();
-  final _keyCtrl    = TextEditingController(); // API key (REST) ou webhook secret
-  String _type      = 'rest_polling';
-  bool   _isSaving  = false;
-  bool   _keyVisible = false;
+class _AddSourceSheetState extends State<_AddSourceSheet> {
+  final _nameCtrl = TextEditingController();
+  final _urlCtrl = TextEditingController();
+  final _keyCtrl = TextEditingController();
+  String _type = 'webhook';
+  bool _isSaving = false;
+  bool _keyVisible = false;
 
   bool get _isWebhook => _type == 'webhook';
 
   @override
   void dispose() {
-    _nameCtrl.dispose(); _urlCtrl.dispose(); _keyCtrl.dispose();
+    _nameCtrl.dispose();
+    _urlCtrl.dispose();
+    _keyCtrl.dispose();
     super.dispose();
   }
 
   Future<void> _submit() async {
     if (_nameCtrl.text.trim().isEmpty) return;
     setState(() => _isSaving = true);
-    final config = _isWebhook
-        ? {
-            'webhook_secret':    _keyCtrl.text.trim(),
-            'source_identifier': _nameCtrl.text.trim().toLowerCase()
-                .replaceAll(' ', '_'),
-          }
-        : {
-            'url':       _urlCtrl.text.trim(),
-            'api_key':   _keyCtrl.text.trim(),
-            'auth_type': 'none',
-          };
-    await context.read<AdminProvider>().addExternalSource(
-      name: _nameCtrl.text.trim(),
-      platformType: _type,
-      config: config,
-    );
-    if (mounted) Navigator.pop(context);
+    try {
+      final config = _isWebhook
+          ? {
+              'webhook_secret': _keyCtrl.text.trim(),
+              'source_identifier': _nameCtrl.text
+                  .trim()
+                  .toLowerCase()
+                  .replaceAll(' ', '_'),
+            }
+          : {
+              'url': _urlCtrl.text.trim(),
+              'api_key': _keyCtrl.text.trim(),
+              'auth_type': 'none',
+            };
+      await context.read<AdminProvider>().addExternalSource(
+            name: _nameCtrl.text.trim(),
+            platformType: _type,
+            config: config,
+          );
+      if (mounted) Navigator.pop(context);
+    } finally {
+      if (mounted) setState(() => _isSaving = false);
+    }
   }
 
   @override
   Widget build(BuildContext context) {
-    return AlertDialog(
-      title: const Text('Nouvelle intégration',
-          style: TextStyle(fontWeight: FontWeight.w800)),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-      content: SingleChildScrollView(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            // Nom
+    final primary = Theme.of(context).colorScheme.primary;
+
+    return Material(
+      color: Colors.white,
+      borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+      child: SafeArea(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.fromLTRB(20, 12, 20, 28),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+            Center(
+              child: Container(
+                width: 40,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: const Color(0xFFD1D5DB),
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+            ),
+            const SizedBox(height: 16),
+            const Text(
+              'Nouvelle intégration',
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              'Choisissez le type de source, puis renseignez les champs. '
+              'Le webhook est recommandé pour recevoir les commandes en temps réel.',
+              style: TextStyle(fontSize: 12, color: Colors.grey.shade600, height: 1.35),
+            ),
+            const SizedBox(height: 18),
             TextFormField(
               controller: _nameCtrl,
               decoration: const InputDecoration(
@@ -1089,24 +1224,40 @@ class _AddSourceDialogState extends State<_AddSourceDialog> {
               ),
             ),
             const SizedBox(height: 12),
-            // Type
             DropdownButtonFormField<String>(
+              key: ValueKey(_type),
               initialValue: _type,
               decoration: const InputDecoration(
                 labelText: 'Type',
                 border: OutlineInputBorder(),
               ),
+              isExpanded: true,
               items: const [
-                DropdownMenuItem(value: 'rest_polling',
-                    child: Text('REST Polling — interrogation active')),
-                DropdownMenuItem(value: 'webhook',
-                    child: Text('Webhook — réception passive')),
+                DropdownMenuItem(
+                  value: 'webhook',
+                  child: Text(
+                    'Webhook (recommandé), réception des commandes',
+                    overflow: TextOverflow.ellipsis,
+                    maxLines: 2,
+                  ),
+                ),
+                DropdownMenuItem(
+                  value: 'rest_polling',
+                  child: Text(
+                    'REST Polling, synchronisation planifiée',
+                    overflow: TextOverflow.ellipsis,
+                    maxLines: 2,
+                  ),
+                ),
               ],
-              onChanged: (v) => setState(() { _type = v!; _keyCtrl.clear(); }),
+              onChanged: _isSaving
+                  ? null
+                  : (v) => setState(() {
+                        _type = v!;
+                        _keyCtrl.clear();
+                      }),
             ),
             const SizedBox(height: 12),
-
-            // Champs spécifiques au type
             if (!_isWebhook) ...[
               TextFormField(
                 controller: _urlCtrl,
@@ -1132,53 +1283,72 @@ class _AddSourceDialogState extends State<_AddSourceDialog> {
                 obscureText: !_keyVisible,
                 decoration: InputDecoration(
                   labelText: 'Secret HMAC (optionnel)',
-                  hintText: 'configurez-le après si inconnu',
+                  hintText: 'À configurer après création si besoin',
                   border: const OutlineInputBorder(),
                   prefixIcon: const Icon(Icons.lock_outline),
                   suffixIcon: IconButton(
-                    icon: Icon(_keyVisible
-                        ? Icons.visibility_off_outlined
-                        : Icons.visibility_outlined, size: 18),
+                    icon: Icon(
+                      _keyVisible
+                          ? Icons.visibility_off_outlined
+                          : Icons.visibility_outlined,
+                      size: 18,
+                    ),
                     onPressed: () => setState(() => _keyVisible = !_keyVisible),
                   ),
                 ),
               ),
-              const SizedBox(height: 10),
+              const SizedBox(height: 12),
               Container(
-                padding: const EdgeInsets.all(10),
+                padding: const EdgeInsets.all(12),
                 decoration: BoxDecoration(
                   color: const Color(0xFFF0FDF4),
-                  borderRadius: BorderRadius.circular(8),
+                  borderRadius: BorderRadius.circular(10),
                   border: Border.all(color: const Color(0xFFBBF7D0)),
                 ),
                 child: const Text(
                   'Le webhook est passif : votre serveur relais envoie les '
-                  'événements à l\'app via push notification. '
-                  'Configurez le secret HMAC après la création.',
-                  style: TextStyle(fontSize: 11, color: Color(0xFF166534)),
+                  'événements à l\'app via notification. Vous pourrez affiner '
+                  'le secret HMAC dans la configuration de la source.',
+                  style: TextStyle(fontSize: 11, color: Color(0xFF166534), height: 1.4),
                 ),
               ),
             ],
+            const SizedBox(height: 24),
+            Row(
+              children: [
+                TextButton(
+                  onPressed: _isSaving ? null : () => Navigator.pop(context),
+                  child: const Text('Annuler'),
+                ),
+                const Spacer(),
+                ElevatedButton(
+                  onPressed: _isSaving ? null : _submit,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: primary,
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                  ),
+                  child: _isSaving
+                      ? const SizedBox(
+                          width: 20,
+                          height: 20,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: Colors.white,
+                          ),
+                        )
+                      : const Text('Ajouter',
+                          style: TextStyle(fontWeight: FontWeight.w700)),
+                ),
+              ],
+            ),
           ],
         ),
       ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.pop(context),
-          child: const Text('Annuler'),
-        ),
-        ElevatedButton(
-          onPressed: _isSaving ? null : _submit,
-          style: ElevatedButton.styleFrom(
-            backgroundColor: Theme.of(context).colorScheme.primary,
-            foregroundColor: Colors.white,
-            shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(8)),
-          ),
-          child: const Text('Ajouter',
-              style: TextStyle(fontWeight: FontWeight.w700)),
-        ),
-      ],
+      ),
     );
   }
 }

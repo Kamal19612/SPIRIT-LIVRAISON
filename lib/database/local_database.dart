@@ -40,13 +40,26 @@ class LocalDatabase {
     // ── Utilisateurs ────────────────────────────────────────────────────────
     await db.execute('''
       CREATE TABLE users (
-        id         INTEGER PRIMARY KEY AUTOINCREMENT,
-        username   TEXT    NOT NULL UNIQUE,
-        password   TEXT    NOT NULL,
-        role       TEXT    NOT NULL DEFAULT 'DELIVERY_AGENT',
-        active     INTEGER NOT NULL DEFAULT 1,
-        fcm_token  TEXT,
-        created_at TEXT    DEFAULT (datetime('now'))
+        id              INTEGER PRIMARY KEY AUTOINCREMENT,
+        username        TEXT    NOT NULL UNIQUE,
+        password        TEXT    NOT NULL,
+        role            TEXT    NOT NULL DEFAULT 'DELIVERY_AGENT',
+        active          INTEGER NOT NULL DEFAULT 1,
+        fcm_token       TEXT,
+        first_name      TEXT,
+        last_name       TEXT,
+        phone           TEXT,
+        cnib_image_path   TEXT,
+        cnib_ocr_text     TEXT,
+        cnib_national_id  TEXT,
+        cnib_serial       TEXT,
+        birth_date        TEXT,
+        birth_place       TEXT,
+        gender            TEXT,
+        profession        TEXT,
+        cnib_issue_date   TEXT,
+        cnib_expiry_date  TEXT,
+        created_at        TEXT    DEFAULT (datetime('now'))
       )
     ''');
 
@@ -136,7 +149,8 @@ class LocalDatabase {
       {'key': 'app_logo_url',  'value': AppConfig.defaultLogoUrl},
       {'key': 'primary_color', 'value': AppConfig.defaultPrimaryColor},
       {'key': 'contact_phone', 'value': ''},
-      {'key': 'contact_address', 'value': ''},
+      {'key': 'contact_email', 'value': ''},
+      {'key': 'support_whatsapp', 'value': ''},
     ]) {
       batch.insert('app_config', entry,
           conflictAlgorithm: ConflictAlgorithm.ignore);
@@ -161,10 +175,60 @@ class LocalDatabase {
   }
 
   Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
-    // Pour les futures migrations incrémentales
-    if (oldVersion < 3) {
-      await _onCreate(db, newVersion);
+    if (oldVersion < 4) {
+      await _migrateToV4(db);
     }
+    if (oldVersion < 5) {
+      await _migrateToV5(db);
+    }
+  }
+
+  Future<void> _migrateToV4(Database db) async {
+    final userCols = await db.rawQuery('PRAGMA table_info(users)');
+    final names = userCols.map((c) => c['name'] as String).toSet();
+    if (!names.contains('first_name')) {
+      await db.execute('ALTER TABLE users ADD COLUMN first_name TEXT');
+    }
+    if (!names.contains('last_name')) {
+      await db.execute('ALTER TABLE users ADD COLUMN last_name TEXT');
+    }
+    if (!names.contains('phone')) {
+      await db.execute('ALTER TABLE users ADD COLUMN phone TEXT');
+    }
+    if (!names.contains('cnib_image_path')) {
+      await db.execute('ALTER TABLE users ADD COLUMN cnib_image_path TEXT');
+    }
+    if (!names.contains('cnib_ocr_text')) {
+      await db.execute('ALTER TABLE users ADD COLUMN cnib_ocr_text TEXT');
+    }
+    await db.insert(
+      'app_config',
+      {'key': 'contact_email', 'value': ''},
+      conflictAlgorithm: ConflictAlgorithm.ignore,
+    );
+    await db.insert(
+      'app_config',
+      {'key': 'support_whatsapp', 'value': ''},
+      conflictAlgorithm: ConflictAlgorithm.ignore,
+    );
+  }
+
+  Future<void> _migrateToV5(Database db) async {
+    final userCols = await db.rawQuery('PRAGMA table_info(users)');
+    final names = userCols.map((c) => c['name'] as String).toSet();
+    Future<void> addCol(String col, String ddl) async {
+      if (!names.contains(col)) {
+        await db.execute(ddl);
+      }
+    }
+    await addCol('cnib_national_id', 'ALTER TABLE users ADD COLUMN cnib_national_id TEXT');
+    await addCol('cnib_serial', 'ALTER TABLE users ADD COLUMN cnib_serial TEXT');
+    await addCol('birth_date', 'ALTER TABLE users ADD COLUMN birth_date TEXT');
+    await addCol('birth_place', 'ALTER TABLE users ADD COLUMN birth_place TEXT');
+    await addCol('gender', 'ALTER TABLE users ADD COLUMN gender TEXT');
+    await addCol('profession', 'ALTER TABLE users ADD COLUMN profession TEXT');
+    await addCol('cnib_issue_date', 'ALTER TABLE users ADD COLUMN cnib_issue_date TEXT');
+    await addCol('cnib_expiry_date', 'ALTER TABLE users ADD COLUMN cnib_expiry_date TEXT');
   }
 
   Future<void> clearOrders() async {

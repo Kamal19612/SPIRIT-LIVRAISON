@@ -97,12 +97,23 @@ class NotificationService {
   /// Affiche une notification locale "Nouvelle commande".
   /// [webhookPayload] : si fourni, sera encodé dans le payload de la notification
   /// afin que [_onNotificationTap] puisse déclencher le webhook handler au tap.
+  ///
+  /// [processWebhookPayload] : si `true` (défaut), applique [WebhookEventHandler]
+  /// avant d'afficher (ex. relais FCM sans traitement amont). Mettre `false`
+  /// quand le handler a déjà été appelé (ex. [SupabaseRelayService]).
   Future<void> showNewOrderNotification(
     String orderNumber, {
     Map<String, dynamic>? webhookPayload,
+    bool processWebhookPayload = true,
   }) async {
     if (!_initialized) return;
     try {
+      if (processWebhookPayload &&
+          webhookPayload != null &&
+          webhookPayload.containsKey('event')) {
+        await WebhookEventHandler.instance.handleWebhookEvent(webhookPayload);
+      }
+
       final payloadStr = webhookPayload != null
           ? jsonEncode(webhookPayload)
           : null;
@@ -136,9 +147,16 @@ class NotificationService {
     required String title,
     required String body,
     Map<String, dynamic>? webhookPayload,
+    bool processWebhookPayload = true,
   }) async {
     if (!_initialized) return;
     try {
+      if (processWebhookPayload &&
+          webhookPayload != null &&
+          webhookPayload.containsKey('event')) {
+        await WebhookEventHandler.instance.handleWebhookEvent(webhookPayload);
+      }
+
       final payloadStr = webhookPayload != null
           ? jsonEncode(webhookPayload)
           : null;

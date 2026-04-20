@@ -59,6 +59,10 @@
 		<string>UIInterfaceOrientationLandscapeLeft</string>
 		<string>UIInterfaceOrientationLandscapeRight</string>
 	</array>
+	<key>NSCameraUsageDescription</key>
+	<string>Photographier la CNIB pour l&apos;inscription des livreurs.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>Sélectionner la photo de la CNIB pour l&apos;inscription des livreurs.</string>
 	<key>UISupportedInterfaceOrientations~ipad</key>
 	<array>
 		<string>UIInterfaceOrientationPortrait</string>
