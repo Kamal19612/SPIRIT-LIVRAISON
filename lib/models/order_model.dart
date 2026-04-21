@@ -13,13 +13,25 @@ class OrderItem {
     required this.total,
   });
 
-  factory OrderItem.fromJson(Map<String, dynamic> json) => OrderItem(
-        id: (json['id'] as num).toInt(),
-        productName: json['productName']?.toString() ?? '',
-        quantity: (json['quantity'] as num?)?.toInt() ?? 1,
-        unitPrice: _parseDouble(json['unitPrice']),
-        total: _parseDouble(json['total']),
-      );
+  factory OrderItem.fromJson(Map<String, dynamic> json) {
+    final idVal = json['id'] ?? json['productId'];
+    var id = 0;
+    if (idVal is int) {
+      id = idVal;
+    } else if (idVal is num) {
+      id = idVal.toInt();
+    } else if (idVal != null) {
+      id = int.tryParse(idVal.toString()) ?? 0;
+    }
+    return OrderItem(
+      id: id,
+      productName:
+          json['productName']?.toString() ?? json['name']?.toString() ?? '',
+      quantity: (json['quantity'] as num?)?.toInt() ?? 1,
+      unitPrice: _parseDouble(json['unitPrice'] ?? json['unit_price']),
+      total: _parseDouble(json['total'] ?? json['totalPrice'] ?? json['total_price']),
+    );
+  }
 
   Map<String, dynamic> toJson() => {
         'id': id,
@@ -32,6 +44,27 @@ class OrderItem {
 
 double _parseDouble(dynamic v) => double.tryParse(v?.toString() ?? '0') ?? 0.0;
 
+int _djb2PositiveId(String s) {
+  var hash = 5381;
+  for (final c in s.codeUnits) {
+    hash = ((hash << 5) + hash + c) & 0x7FFFFFFF;
+  }
+  return hash == 0 ? 1 : hash;
+}
+
+int _parseOrderId(Map<String, dynamic> json) {
+  final v = json['id'];
+  if (v is int) return v;
+  if (v is num) return v.toInt();
+  if (v is String) {
+    final p = int.tryParse(v);
+    if (p != null) return p;
+  }
+  final ref = json['orderNumber']?.toString();
+  if (ref != null && ref.isNotEmpty) return _djb2PositiveId(ref);
+  return _djb2PositiveId('webhook');
+}
+
 class Order {
   final int id;
   final String orderNumber;
@@ -43,7 +76,9 @@ class Order {
   final double? customerLatitude;
   final double? customerLongitude;
   final double? distanceKm; // distance calculée depuis le livreur
+  final String? manualLocationLink;
   final String? deliveryType;
+  final String? scheduledTime;
   final double? deliveryCost;
   final double subtotal;
   final double tax;
@@ -68,7 +103,9 @@ class Order {
     this.customerLatitude,
     this.customerLongitude,
     this.distanceKm,
+    this.manualLocationLink,
     this.deliveryType,
+    this.scheduledTime,
     this.deliveryCost,
     required this.subtotal,
     required this.tax,
@@ -94,7 +131,9 @@ class Order {
         customerLatitude: customerLatitude,
         customerLongitude: customerLongitude,
         distanceKm: distanceKm ?? this.distanceKm,
+        manualLocationLink: manualLocationLink,
         deliveryType: deliveryType,
+        scheduledTime: scheduledTime,
         deliveryCost: deliveryCost,
         subtotal: subtotal,
         tax: tax,
@@ -123,8 +162,13 @@ class Order {
         customerLongitude: row['customerLongitude'] != null
             ? (row['customerLongitude'] as num).toDouble()
             : null,
-        subtotal: 0,
-        tax: 0,
+        manualLocationLink: row['manualLocationLink']?.toString(),
+        deliveryType: row['deliveryType']?.toString(),
+        scheduledTime: row['scheduledTime']?.toString(),
+        deliveryCost: row['deliveryCost'] != null ? _parseDouble(row['deliveryCost']) : null,
+        distanceKm: row['distance'] != null ? _parseDouble(row['distance']) : null,
+        subtotal: _parseDouble(row['subtotal']),
+        tax: _parseDouble(row['tax']),
         total: _parseDouble(row['total']),
         status: row['status']?.toString() ?? 'CONFIRMED',
         createdAt: row['createdAt']?.toString() ?? '',
@@ -135,11 +179,19 @@ class Order {
 
   factory Order.fromJson(Map<String, dynamic> json) {
     final rawItems = json['items'];
-    final List<OrderItem> itemsList = rawItems is List
-        ? rawItems.map((e) => OrderItem.fromJson(e as Map<String, dynamic>)).toList()
-        : [];
+    final List<OrderItem> itemsList = [];
+    if (rawItems is List) {
+      for (final e in rawItems) {
+        if (e is! Map) continue;
+        try {
+          itemsList.add(
+            OrderItem.fromJson(Map<String, dynamic>.from(e)),
+          );
+        } catch (_) {}
+      }
+    }
     return Order(
-      id: (json['id'] as num).toInt(),
+      id: _parseOrderId(json),
       orderNumber: json['orderNumber']?.toString() ?? '',
       confirmationCode: json['confirmationCode']?.toString(),
       customerName: json['customerName']?.toString() ?? '',
@@ -150,6 +202,11 @@ class Order {
           json['customerLatitude'] != null ? _parseDouble(json['customerLatitude']) : null,
       customerLongitude:
           json['customerLongitude'] != null ? _parseDouble(json['customerLongitude']) : null,
+      manualLocationLink: json['manualLocationLink']?.toString(),
+      deliveryType: json['deliveryType']?.toString(),
+      scheduledTime: json['scheduledTime']?.toString(),
+      deliveryCost: json['deliveryCost'] != null ? _parseDouble(json['deliveryCost']) : null,
+      distanceKm: json['distance'] != null ? _parseDouble(json['distance']) : null,
       subtotal: _parseDouble(json['subtotal']),
       tax: _parseDouble(json['tax']),
       total: _parseDouble(json['total']),
@@ -173,6 +230,11 @@ class Order {
         'customerNotes': customerNotes,
         'customerLatitude': customerLatitude,
         'customerLongitude': customerLongitude,
+        'manualLocationLink': manualLocationLink,
+        'deliveryType': deliveryType,
+        'scheduledTime': scheduledTime,
+        'deliveryCost': deliveryCost,
+        'distance': distanceKm,
         'subtotal': subtotal,
         'tax': tax,
         'total': total,

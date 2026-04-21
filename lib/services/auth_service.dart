@@ -3,6 +3,7 @@ import 'package:crypto/crypto.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import '../database/local_database.dart';
 import '../models/user_model.dart';
+import 'store_api_bridge.dart';
 
 class AuthService {
   AuthService._();
@@ -44,10 +45,21 @@ class AuthService {
     await _storage.write(key: 'username', value: user.username);
     await _storage.write(key: 'role',     value: user.role);
 
+    if (role == 'DELIVERY_AGENT') {
+      try {
+        await StoreApiBridge.instance.loginWithCredentials(username, password);
+      } catch (_) {
+        await StoreApiBridge.instance.clearSession();
+      }
+    } else {
+      await StoreApiBridge.instance.clearSession();
+    }
+
     return user;
   }
 
   Future<void> logout() async {
+    await StoreApiBridge.instance.clearSession();
     await _storage.deleteAll();
   }
 

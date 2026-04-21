@@ -23,6 +23,7 @@ import '../database/orders_dao.dart';
 import '../models/external_source_model.dart';
 import '../models/order_model.dart';
 import 'webhook_constants.dart';
+import 'webhook_order_normalizer.dart';
 import 'webhook_signature_verifier.dart';
 
 // ── Type callback ─────────────────────────────────────────────────────────────
@@ -97,31 +98,36 @@ class WebhookEventHandler extends ChangeNotifier {
         return;
       }
 
+      final extSrc =
+          await WebhookOrderNormalizer.resolveSource(parsed.source);
+      final orderNorm =
+          WebhookOrderNormalizer.normalizeOrder(parsed.order, extSrc);
+
       debugPrint(
         'WebhookEventHandler: événement reçu: ${parsed.event} '
-        '| order#${parsed.order?['orderNumber']} '
-        '| ts=${parsed.timestamp}',
+        '| order#${orderNorm?['orderNumber'] ?? parsed.order?['orderNumber']} '
+        '| ts=${parsed.timestamp}'
+        '${parsed.source != null ? ' | source=${parsed.source}' : ''}',
       );
 
       final meta = <String, dynamic>{
         'event':   parsed.event,
         'version': parsed.version,
         if (parsed.timestamp != null) 'timestamp': parsed.timestamp,
+        if (parsed.source != null) 'source': parsed.source,
       };
 
       _lastEvent = parsed.event;
-      _lastOrder = parsed.order;
+      _lastOrder = orderNorm;
 
       // 1. Dispatcher aux listeners abonnés
-      _dispatchEvent(parsed.event, parsed.order, meta);
+      _dispatchEvent(parsed.event, orderNorm, meta);
 
       // 2. Actions DB par défaut
-      await _handleByEventType(parsed.event, parsed.order);
+      await _handleByEventType(parsed.event, orderNorm);
 
       // 3. Mettre à jour les stats de la source (received_count, last_received_at)
-      if (parsed.source != null) {
-        await _updateSourceReceivedStats(parsed.source!);
-      }
+      await _updateSourceReceivedStats(parsed.source);
 
       // 4. Notifier les screens Flutter (addListener pattern)
       notifyListeners();
@@ -244,6 +250,20 @@ class WebhookEventHandler extends ChangeNotifier {
         }
         break;
 
+      case WebhookEvents.orderRejected:
+        // Commande rejetée → statut REJECTED (refus explicite)
+        if (order != null) {
+          final orderId = (order['id'] as num?)?.toInt();
+          if (orderId != null) {
+            try {
+              await OrdersDao.instance.updateOrderStatus(orderId, 'REJECTED');
+            } catch (e) {
+              debugPrint('WebhookEventHandler [ORDER_REJECTED] erreur DB: $e');
+            }
+          }
+        }
+        break;
+
       case WebhookEvents.webhookTest:
         // Ping de test — connexion opérationnelle
         debugPrint('WebhookEventHandler [WEBHOOK_TEST]: connexion webhook opérationnelle ✓');
@@ -258,20 +278,29 @@ class WebhookEventHandler extends ChangeNotifier {
 
   /// Incrémente `received_count` et met à jour `last_received_at` pour la
   /// source dont le `source_identifier` correspond à [sourceIdentifier].
-  Future<void> _updateSourceReceivedStats(String sourceIdentifier) async {
+  Future<void> _updateSourceReceivedStats(String? sourceIdentifier) async {
+    if (sourceIdentifier == null || sourceIdentifier.isEmpty) {
+      debugPrint(
+        'WebhookEventHandler [stats]: pas de champ source — stats non mises à jour',
+      );
+      return;
+    }
     try {
       final db = LocalDatabase.instance.db;
 
-      // Chercher la source par name ou source_identifier
-      final rows = await db.query('external_sources',
-          where: "platformType = 'webhook'");
+      final rows = await db.query(
+        'external_sources',
+        where: 'platformType = ?',
+        whereArgs: ['webhook'],
+      );
 
       for (final row in rows) {
         final src = ExternalSource.fromSqlite(row);
-        if (src.sourceIdentifier == sourceIdentifier || src.name == sourceIdentifier) {
+        if (src.sourceIdentifier == sourceIdentifier ||
+            src.name == sourceIdentifier) {
           final newConfig = {
             ...src.config,
-            'received_count':   src.receivedCount + 1,
+            'received_count': src.receivedCount + 1,
             'last_received_at': DateTime.now().toIso8601String(),
           };
           await db.update(

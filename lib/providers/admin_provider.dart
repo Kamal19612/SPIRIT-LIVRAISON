@@ -113,13 +113,13 @@ class AdminProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> addExternalSource({
+  Future<int> addExternalSource({
     required String name,
     required String platformType,
     required Map<String, dynamic> config,
     bool isActive = true,
   }) async {
-    await LocalDatabase.instance.db.insert('external_sources', {
+    final id = await LocalDatabase.instance.db.insert('external_sources', {
       'name': name,
       'platformType': platformType,
       'configJson': jsonEncode(config),
@@ -127,6 +127,7 @@ class AdminProvider extends ChangeNotifier {
       'createdAt': DateTime.now().toIso8601String(),
     });
     await loadSources();
+    return id;
   }
 
   Future<void> toggleSource(int id, bool active) async {

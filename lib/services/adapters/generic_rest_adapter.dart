@@ -30,53 +30,97 @@ class GenericRestAdapter {
 
   // ── HTTP fetch ──────────────────────────────────────────────────────────────
 
-  Future<List<Map<String, dynamic>>> fetchRawOrders(ExternalSource source) async {
+  Future<List<Map<String, dynamic>>> fetchRawOrders(
+    ExternalSource source, {
+    String? apiKeyOverride,
+    DateTime? since,
+  }) async {
     final options = Options(headers: {});
+    final apiKey = apiKeyOverride ?? source.apiKey;
 
     switch (source.authType) {
       case 'bearer':
-        options.headers!['Authorization'] = 'Bearer ${source.apiKey}';
+        if (apiKey.isNotEmpty) {
+          options.headers!['Authorization'] = 'Bearer $apiKey';
+        }
         break;
       case 'api_key_header':
-        options.headers!['X-API-Key'] = source.apiKey;
+        if (apiKey.isNotEmpty) {
+          options.headers!['X-API-Key'] = apiKey;
+        }
         break;
       case 'basic':
         // apiKey stored as "user:password" base64
-        options.headers!['Authorization'] = 'Basic ${source.apiKey}';
+        if (apiKey.isNotEmpty) {
+          options.headers!['Authorization'] = 'Basic $apiKey';
+        }
         break;
       // 'query_param' and 'none' handled below
     }
 
-    String url = source.url;
-    if (source.authType == 'query_param' && source.apiKey.isNotEmpty) {
-      final separator = url.contains('?') ? '&' : '?';
-      url = '$url${separator}api_key=${Uri.encodeQueryComponent(source.apiKey)}';
+    final url = source.url;
+    final qp = <String, dynamic>{};
+
+    if (source.authType == 'query_param' && apiKey.isNotEmpty) {
+      qp['api_key'] = apiKey;
     }
 
-    final response = await _dio.get<dynamic>(url, options: options);
-    final body = response.data;
+    // Incremental sync if supported
+    if (since != null && source.sinceParam.isNotEmpty) {
+      qp[source.sinceParam] = since.toUtc().toIso8601String();
+    }
 
-    // Navigate to the list using dot-notation response path (e.g. "data.orders")
-    dynamic data = body;
-    if (source.responsePath.isNotEmpty) {
-      for (final key in source.responsePath.split('.')) {
-        if (data is Map) {
-          data = data[key];
-        } else {
-          data = null;
-          break;
+    // Page-based pagination if configured
+    final usePaging = source.pageParam.isNotEmpty && source.limitParam.isNotEmpty;
+    final pageSize = source.pageSize <= 0 ? 50 : source.pageSize;
+
+    final out = <Map<String, dynamic>>[];
+    int page = 1;
+    const maxPages = 20; // safety to avoid infinite loops
+
+    while (true) {
+      final pageQp = Map<String, dynamic>.from(qp);
+      if (usePaging) {
+        pageQp[source.pageParam] = page;
+        pageQp[source.limitParam] = pageSize;
+      }
+
+      final response = await _dio.get<dynamic>(
+        url,
+        options: options,
+        queryParameters: pageQp.isEmpty ? null : pageQp,
+      );
+      final body = response.data;
+
+      // Navigate to the list using dot-notation response path (e.g. "data.orders")
+      dynamic data = body;
+      if (source.responsePath.isNotEmpty) {
+        for (final key in source.responsePath.split('.')) {
+          if (data is Map) {
+            data = data[key];
+          } else {
+            data = null;
+            break;
+          }
         }
       }
+
+      final batch = <Map<String, dynamic>>[];
+      if (data is List) {
+        batch.addAll(data.whereType<Map<String, dynamic>>());
+      } else if (data is Map<String, dynamic>) {
+        batch.add(data);
+      }
+
+      out.addAll(batch);
+
+      if (!usePaging) break;
+      if (batch.length < pageSize) break;
+      page++;
+      if (page > maxPages) break;
     }
 
-    if (data is List) {
-      return data.whereType<Map<String, dynamic>>().toList();
-    }
-    if (data is Map<String, dynamic>) {
-      // Single object wrapped — treat as one order
-      return [data];
-    }
-    return [];
+    return out;
   }
 
   // ── Normalization ───────────────────────────────────────────────────────────
@@ -85,6 +129,7 @@ class GenericRestAdapter {
     Map<String, dynamic> raw,
     Map<String, String> fieldMapping,
     String sourceName,
+    String idFieldPath,
   ) {
     String resolve(String canonical, List<String> candidates) {
       // 1) explicit mapping
@@ -114,8 +159,19 @@ class GenericRestAdapter {
       return double.tryParse(s) ?? 0.0;
     }
 
-    final externalId = resolve('orderNumber', _candidatesOrderNumber);
-    final orderNumber = '$sourceName-$externalId';
+    // Use a stable external id; prefer explicit id_field (dot-notation).
+    String externalId = '';
+    if (idFieldPath.trim().isNotEmpty) {
+      externalId = _deepGet(raw, idFieldPath.trim())?.toString() ?? '';
+    }
+    // Or explicit mapping for canonical orderNumber (can be dot-notation)
+    if (externalId.isEmpty && fieldMapping.containsKey('orderNumber')) {
+      externalId = _deepGet(raw, fieldMapping['orderNumber']!)?.toString() ?? '';
+    }
+    // Fallback to auto-detect
+    if (externalId.isEmpty) externalId = resolve('orderNumber', _candidatesOrderNumber);
+    final safeExternalId = externalId.isEmpty ? 'unknown' : externalId;
+    final orderNumber = '$sourceName-$safeExternalId';
 
     // Deterministic int id: djb2 hash of orderNumber (always positive, fits int)
     int hash = 5381;

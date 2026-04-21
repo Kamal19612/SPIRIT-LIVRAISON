@@ -3,9 +3,14 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../models/external_source_model.dart';
+import '../../database/app_config_dao.dart';
 import '../../providers/admin_provider.dart';
 import '../../providers/app_config_provider.dart';
+import '../../services/app_config_service.dart';
 import '../../services/polling_service.dart';
+import '../../services/external_source_secrets.dart';
+import '../../services/supabase_relay_service.dart';
+import '../../utils/url_normalize.dart';
 
 class AdminSettingsScreen extends StatelessWidget {
   const AdminSettingsScreen({super.key});
@@ -55,8 +60,15 @@ class _AppConfigTabState extends State<_AppConfigTab> {
   final _phoneCtrl    = TextEditingController();
   final _emailCtrl    = TextEditingController();
   final _whatsappCtrl = TextEditingController();
+  final _storeOriginCtrl   = TextEditingController();
+  final _storePlatformCtrl = TextEditingController();
+  final _supabaseUrlCtrl   = TextEditingController();
+  final _supabaseAnonCtrl  = TextEditingController();
   bool _isSaving = false;
   bool _initialized = false;
+  bool _storeFieldsLoaded = false;
+  bool _supabaseFieldsLoaded = false;
+  bool _isTestingSupabase = false;
 
   @override
   void didChangeDependencies() {
@@ -71,6 +83,24 @@ class _AppConfigTabState extends State<_AppConfigTab> {
       _whatsappCtrl.text = config.supportWhatsapp;
       _initialized = true;
     }
+    if (!_storeFieldsLoaded) {
+      _storeFieldsLoaded = true;
+      AppConfigDao.instance.getValue('store_api_origin').then((v) {
+        if (mounted) setState(() => _storeOriginCtrl.text = v ?? '');
+      });
+      AppConfigDao.instance.getValue('store_source_platform').then((v) {
+        if (mounted) setState(() => _storePlatformCtrl.text = v ?? '');
+      });
+    }
+    if (!_supabaseFieldsLoaded) {
+      _supabaseFieldsLoaded = true;
+      AppConfigDao.instance.getValue('supabase_url').then((v) {
+        if (mounted) setState(() => _supabaseUrlCtrl.text = v ?? '');
+      });
+      AppConfigDao.instance.getValue('supabase_anon_key').then((v) {
+        if (mounted) setState(() => _supabaseAnonCtrl.text = v ?? '');
+      });
+    }
   }
 
   @override
@@ -81,6 +111,10 @@ class _AppConfigTabState extends State<_AppConfigTab> {
     _phoneCtrl.dispose();
     _emailCtrl.dispose();
     _whatsappCtrl.dispose();
+    _storeOriginCtrl.dispose();
+    _storePlatformCtrl.dispose();
+    _supabaseUrlCtrl.dispose();
+    _supabaseAnonCtrl.dispose();
     super.dispose();
   }
 
@@ -95,6 +129,19 @@ class _AppConfigTabState extends State<_AppConfigTab> {
         contactEmail:      _emailCtrl.text.trim(),
         supportWhatsapp:   _whatsappCtrl.text.trim(),
       );
+      final storeOrigin = normalizeHttpOrigin(_storeOriginCtrl.text) ?? '';
+      final supabaseUrl = normalizeHttpOrigin(_supabaseUrlCtrl.text) ?? '';
+      await AppConfigService.instance.save({
+        'store_api_origin':        storeOrigin,
+        'store_source_platform':   _storePlatformCtrl.text.trim(),
+        'supabase_url':            supabaseUrl,
+        'supabase_anon_key':       _supabaseAnonCtrl.text.trim(),
+      });
+
+      // Redémarrer l’abonnement Realtime si les valeurs changent.
+      await SupabaseRelayService.instance.stop();
+      await SupabaseRelayService.instance.startIfConfigured();
+
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
@@ -105,6 +152,20 @@ class _AppConfigTabState extends State<_AppConfigTab> {
       }
     } finally {
       if (mounted) setState(() => _isSaving = false);
+    }
+  }
+
+  Future<void> _testSupabase() async {
+    if (_isTestingSupabase) return;
+    setState(() => _isTestingSupabase = true);
+    try {
+      final msg = await SupabaseRelayService.instance.testConnection();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(msg), behavior: SnackBarBehavior.floating),
+      );
+    } finally {
+      if (mounted) setState(() => _isTestingSupabase = false);
     }
   }
 
@@ -249,6 +310,73 @@ class _AppConfigTabState extends State<_AppConfigTab> {
                 icon: Icons.chat_outlined,
                 hint: '+224 6XX XXX XXX',
                 keyboardType: TextInputType.phone,
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          _Section(
+            title: 'API boutique (prise en charge / livré)',
+            children: [
+              const Text(
+                'Pour synchroniser Spirit avec Sucre Store : URL d’origine du backend '
+                '(sans /api), et le nom exact de la source des commandes (identique au '
+                '« Nom de la plateforme » dans Intégrations → webhook). À la connexion, '
+                'le livreur utilise le même mot de passe que sur la boutique pour obtenir un JWT.',
+                style: TextStyle(fontSize: 11, color: Color(0xFF6B7280), height: 1.4),
+              ),
+              const SizedBox(height: 12),
+              _SettingField(
+                ctrl: _storeOriginCtrl,
+                label: 'URL origine API (ex. https://boutique.com:8081)',
+                icon: Icons.cloud_sync_outlined,
+                hint: 'Laisser vide pour désactiver la sync API',
+                keyboardType: TextInputType.url,
+              ),
+              const SizedBox(height: 12),
+              _SettingField(
+                ctrl: _storePlatformCtrl,
+                label: 'Nom plateforme commandes (sourcePlatform)',
+                icon: Icons.hub_outlined,
+                hint: 'ex. Sucre Store — comme la source webhook',
+              ),
+            ],
+          ),
+          const SizedBox(height: 24),
+
+          _Section(
+            title: 'Supabase Realtime (réception commandes)',
+            children: [
+              const Text(
+                'Indispensable pour recevoir les commandes en temps réel (WebhookRelay → table webhook_events). '
+                'Sur mobile, évitez 127.0.0.1 : utilisez une URL accessible depuis le téléphone.',
+                style: TextStyle(fontSize: 11, color: Color(0xFF6B7280), height: 1.4),
+              ),
+              const SizedBox(height: 12),
+              _SettingField(
+                ctrl: _supabaseUrlCtrl,
+                label: 'Supabase URL (ex. http://IP:8000)',
+                icon: Icons.cloud_outlined,
+                hint: 'http://5.189.133.248:8000',
+                keyboardType: TextInputType.url,
+              ),
+              const SizedBox(height: 12),
+              _SettingField(
+                ctrl: _supabaseAnonCtrl,
+                label: 'Supabase ANON KEY',
+                icon: Icons.vpn_key_outlined,
+                hint: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...',
+              ),
+              const SizedBox(height: 12),
+              OutlinedButton.icon(
+                onPressed: _isTestingSupabase ? null : _testSupabase,
+                icon: _isTestingSupabase
+                    ? const SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.wifi_tethering_outlined),
+                label: Text(_isTestingSupabase ? 'Test...' : 'Tester Supabase'),
               ),
             ],
           ),
@@ -754,8 +882,10 @@ class _WebhookConfigSheetState extends State<_WebhookConfigSheet> {
                     onPressed: () => setState(() => _secretVisible = !_secretVisible),
                   ),
                   helperText:
-                      'Même valeur que WEBHOOK_SECRET dans le serveur relais',
-                  helperMaxLines: 2,
+                      'Identique au secret boutique (Sucre Store : app_settings '
+                      'webhook_secret ou WEBHOOK_SECRET) et au relais qui vérifie '
+                      'X-Webhook-Signature',
+                  helperMaxLines: 3,
                 ),
               ),
             ]),
@@ -846,6 +976,11 @@ class _RestPollingConfigSheetState extends State<_RestPollingConfigSheet> {
   late final TextEditingController _apiKeyCtrl;
   late final TextEditingController _responsePathCtrl;
   late String _authType;
+  late final TextEditingController _idFieldCtrl;
+  late final TextEditingController _sinceParamCtrl;
+  late final TextEditingController _pageParamCtrl;
+  late final TextEditingController _limitParamCtrl;
+  late final TextEditingController _pageSizeCtrl;
 
   // Field mapping: canonical name → source field name
   final _mappingRows = <_MappingRow>[];
@@ -861,9 +996,15 @@ class _RestPollingConfigSheetState extends State<_RestPollingConfigSheet> {
     super.initState();
     final s = widget.source;
     _urlCtrl          = TextEditingController(text: s.url);
-    _apiKeyCtrl       = TextEditingController(text: s.apiKey);
+    // API keys are stored in secure storage (never in SQLite).
+    _apiKeyCtrl       = TextEditingController(text: '');
     _responsePathCtrl = TextEditingController(text: s.responsePath);
     _authType         = s.authType.isEmpty ? 'none' : s.authType;
+    _idFieldCtrl      = TextEditingController(text: s.idFieldPath);
+    _sinceParamCtrl   = TextEditingController(text: s.sinceParam);
+    _pageParamCtrl    = TextEditingController(text: s.pageParam);
+    _limitParamCtrl   = TextEditingController(text: s.limitParam);
+    _pageSizeCtrl     = TextEditingController(text: s.pageSize > 0 ? '${s.pageSize}' : '50');
 
     s.fieldMapping.forEach((canonical, sourceField) {
       _mappingRows.add(_MappingRow(
@@ -876,6 +1017,11 @@ class _RestPollingConfigSheetState extends State<_RestPollingConfigSheet> {
   @override
   void dispose() {
     _urlCtrl.dispose(); _apiKeyCtrl.dispose(); _responsePathCtrl.dispose();
+    _idFieldCtrl.dispose();
+    _sinceParamCtrl.dispose();
+    _pageParamCtrl.dispose();
+    _limitParamCtrl.dispose();
+    _pageSizeCtrl.dispose();
     for (final r in _mappingRows) { r.canonicalCtrl.dispose(); r.sourceCtrl.dispose(); }
     super.dispose();
   }
@@ -890,12 +1036,38 @@ class _RestPollingConfigSheetState extends State<_RestPollingConfigSheet> {
         if (k.isNotEmpty && v.isNotEmpty) mapping[k] = v;
       }
 
+      final idField = _idFieldCtrl.text.trim();
+      final hasCanonicalIdMapping =
+          mapping.containsKey('orderNumber') && mapping['orderNumber']!.trim().isNotEmpty;
+      if (idField.isEmpty && !hasCanonicalIdMapping) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+            content: Text('Renseignez "Champ ID" ou mappez "orderNumber".'),
+          ));
+        }
+        return;
+      }
+
+      // Save only if user entered a new key; leaving empty keeps existing key.
+      if (widget.source.id != null && _apiKeyCtrl.text.trim().isNotEmpty) {
+        await ExternalSourceSecrets.instance.setApiKey(
+          widget.source.id!,
+          _apiKeyCtrl.text.trim(),
+        );
+      }
+
       await context.read<AdminProvider>().updateSourceConfig(widget.source.id!, {
         'url':           _urlCtrl.text.trim(),
-        'api_key':       _apiKeyCtrl.text.trim(),
         'auth_type':     _authType,
         'response_path': _responsePathCtrl.text.trim(),
+        'id_field':      idField,
+        'since_param':   _sinceParamCtrl.text.trim(),
+        'page_param':    _pageParamCtrl.text.trim(),
+        'limit_param':   _limitParamCtrl.text.trim(),
+        'page_size':     int.tryParse(_pageSizeCtrl.text.trim()) ?? 50,
         'field_mapping': jsonEncode(mapping),
+        // legacy cleanup: never store api_key in SQLite config
+        'api_key': '',
       });
 
       if (mounted) Navigator.pop(context);
@@ -969,6 +1141,7 @@ class _RestPollingConfigSheetState extends State<_RestPollingConfigSheet> {
                     border: const OutlineInputBorder(),
                     prefixIcon: const Icon(Icons.vpn_key_outlined),
                     isDense: true,
+                    helperText: 'Laisser vide pour conserver la clé actuelle.',
                   ),
                 ),
               ],
@@ -986,6 +1159,75 @@ class _RestPollingConfigSheetState extends State<_RestPollingConfigSheet> {
                   prefixIcon: Icon(Icons.account_tree_outlined),
                   isDense: true,
                   helperText: 'Laisser vide si la réponse est directement un tableau',
+                ),
+              ),
+            ]),
+            const SizedBox(height: 16),
+
+            _SheetSection(title: 'Identifiant & synchro (recommandé)', children: [
+              TextFormField(
+                controller: _idFieldCtrl,
+                decoration: const InputDecoration(
+                  labelText: 'Champ ID (obligatoire)',
+                  hintText: 'id  ou  order.id  ou  ref_cmd',
+                  border: OutlineInputBorder(),
+                  prefixIcon: Icon(Icons.fingerprint),
+                  isDense: true,
+                  helperText: 'Permet la déduplication correcte (évite les doublons/collisions).',
+                ),
+              ),
+              const SizedBox(height: 12),
+              TextFormField(
+                controller: _sinceParamCtrl,
+                decoration: const InputDecoration(
+                  labelText: 'Paramètre "since" (optionnel)',
+                  hintText: 'updated_since',
+                  border: OutlineInputBorder(),
+                  prefixIcon: Icon(Icons.update),
+                  isDense: true,
+                  helperText: 'Si l’API supporte un filtre depuis une date ISO (last_sync_at).',
+                ),
+              ),
+            ]),
+            const SizedBox(height: 16),
+
+            _SheetSection(title: 'Pagination (optionnel)', children: [
+              Row(
+                children: [
+                  Expanded(
+                    child: TextFormField(
+                      controller: _pageParamCtrl,
+                      decoration: const InputDecoration(
+                        labelText: 'Paramètre page',
+                        hintText: 'page',
+                        border: OutlineInputBorder(),
+                        isDense: true,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: TextFormField(
+                      controller: _limitParamCtrl,
+                      decoration: const InputDecoration(
+                        labelText: 'Paramètre limit',
+                        hintText: 'limit',
+                        border: OutlineInputBorder(),
+                        isDense: true,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              TextFormField(
+                controller: _pageSizeCtrl,
+                keyboardType: TextInputType.number,
+                decoration: const InputDecoration(
+                  labelText: 'Taille de page',
+                  hintText: '50',
+                  border: OutlineInputBorder(),
+                  isDense: true,
                 ),
               ),
             ]),
@@ -1165,14 +1407,24 @@ class _AddSourceSheetState extends State<_AddSourceSheet> {
             }
           : {
               'url': _urlCtrl.text.trim(),
-              'api_key': _keyCtrl.text.trim(),
               'auth_type': 'none',
+              // Never store api keys in SQLite; use secure storage instead.
+              'api_key': '',
+              // Safe defaults; can be edited later in config sheet.
+              'id_field': 'id',
+              'since_param': '',
+              'page_param': '',
+              'limit_param': '',
+              'page_size': 50,
             };
-      await context.read<AdminProvider>().addExternalSource(
+      final newId = await context.read<AdminProvider>().addExternalSource(
             name: _nameCtrl.text.trim(),
             platformType: _type,
             config: config,
           );
+      if (!_isWebhook && _keyCtrl.text.trim().isNotEmpty) {
+        await ExternalSourceSecrets.instance.setApiKey(newId, _keyCtrl.text.trim());
+      }
       if (mounted) Navigator.pop(context);
     } finally {
       if (mounted) setState(() => _isSaving = false);
@@ -1307,8 +1559,9 @@ class _AddSourceSheetState extends State<_AddSourceSheet> {
                 ),
                 child: const Text(
                   'Le webhook est passif : votre serveur relais envoie les '
-                  'événements à l\'app via notification. Vous pourrez affiner '
-                  'le secret HMAC dans la configuration de la source.',
+                  'événements à l\'app via notification. Le secret HMAC doit être '
+                  'exactement le même que celui utilisé par la boutique pour signer '
+                  'le corps JSON (et par le relais pour vérifier X-Webhook-Signature).',
                   style: TextStyle(fontSize: 11, color: Color(0xFF166534), height: 1.4),
                 ),
               ),

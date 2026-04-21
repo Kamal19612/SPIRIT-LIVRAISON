@@ -20,6 +20,9 @@ class WebhookEvents {
   /// Commande annulée
   static const orderCancelled  = 'ORDER_CANCELLED';
 
+  /// Commande rejetée par l'admin
+  static const orderRejected   = 'ORDER_REJECTED';
+
   /// Ping de test envoyé depuis le panneau admin
   static const webhookTest     = 'WEBHOOK_TEST';
 
@@ -28,7 +31,7 @@ class WebhookEvents {
 
   static const all = [
     orderConfirmed, orderClaimed, orderInDelivery,
-    orderDelivered, orderCancelled, webhookTest,
+    orderDelivered, orderCancelled, orderRejected, webhookTest,
   ];
 }
 

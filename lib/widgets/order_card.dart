@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../models/order_model.dart';
 
 class OrderCard extends StatefulWidget {
@@ -24,6 +25,14 @@ class _OrderCardState extends State<OrderCard> {
   bool    _isClaiming   = false;
   bool    _isCompleting = false;
   String? _codeError;
+  String  _timeLeft     = '';
+  _Urgency _urgency     = _Urgency.normal;
+
+  @override
+  void initState() {
+    super.initState();
+    _recomputeTimer();
+  }
 
   static const Color _secondary  = Color(0xFF242021);
   static const Color _gray50     = Color(0xFFF9FAFB);
@@ -46,6 +55,116 @@ class _OrderCardState extends State<OrderCard> {
     } catch (_) {
       return '--:--';
     }
+  }
+
+  void _recomputeTimer() {
+    final order = widget.order;
+    final type = (order.deliveryType ?? '').toUpperCase();
+
+    // Default
+    var timeLeft = '';
+    var urgency  = _Urgency.normal;
+
+    DateTime? created;
+    try {
+      created = DateTime.parse(order.createdAt);
+    } catch (_) {
+      created = null;
+    }
+
+    if (type == 'EXPRESS' && created != null) {
+      final diffMins = DateTime.now().difference(created).inMinutes;
+      timeLeft = '$diffMins min';
+      if (diffMins > 45) {
+        urgency = _Urgency.critical;
+      } else if (diffMins > 30) {
+        urgency = _Urgency.warning;
+      }
+    } else if (type == 'PROGRAMMER' && (order.scheduledTime ?? '').trim().isNotEmpty) {
+      final s = order.scheduledTime!.trim();
+      final parts = s.split(':');
+      if (parts.length >= 2) {
+        final h = int.tryParse(parts[0]);
+        final m = int.tryParse(parts[1]);
+        if (h != null && m != null) {
+          final now = DateTime.now();
+          final target = DateTime(now.year, now.month, now.day, h, m);
+          final diffMins = target.difference(now).inMinutes;
+          if (diffMins < 0) {
+            timeLeft = 'Retard ${diffMins.abs()} min';
+            urgency  = _Urgency.critical;
+          } else {
+            timeLeft = '$diffMins min';
+            if (diffMins < 15) {
+              urgency = _Urgency.critical;
+            } else if (diffMins < 30) {
+              urgency = _Urgency.warning;
+            }
+          }
+        } else {
+          timeLeft = s;
+        }
+      } else {
+        timeLeft = s;
+      }
+    } else if ((order.scheduledTime ?? '').trim().isNotEmpty) {
+      timeLeft = order.scheduledTime!.trim();
+    }
+
+    if (!mounted) return;
+    setState(() {
+      _timeLeft = timeLeft;
+      _urgency  = urgency;
+    });
+
+    // Re-run every 30s (similar to web)
+    Future<void>.delayed(const Duration(seconds: 30), () {
+      if (!mounted) return;
+      _recomputeTimer();
+    });
+  }
+
+  Future<void> _launchExternal(Uri uri) async {
+    final ok = await launchUrl(uri, mode: LaunchMode.externalApplication);
+    if (!ok) {
+      throw Exception("Impossible d'ouvrir: $uri");
+    }
+  }
+
+  Future<void> _callCustomer() async {
+    final raw = widget.order.customerPhone.trim();
+    if (raw.isEmpty) return;
+    final phone = raw.replaceAll(' ', '');
+    await _launchExternal(Uri(scheme: 'tel', path: phone));
+  }
+
+  Future<void> _openMap() async {
+    final o = widget.order;
+
+    // 1) GPS coordinates
+    if (o.customerLatitude != null && o.customerLongitude != null) {
+      final query = '${o.customerLatitude},${o.customerLongitude}';
+      await _launchExternal(
+        Uri.parse('https://www.google.com/maps/search/?api=1&query=$query'),
+      );
+      return;
+    }
+
+    // 2) Manual Google Maps link if provided
+    final link = o.manualLocationLink?.trim();
+    if (link != null && link.isNotEmpty) {
+      final uri = Uri.tryParse(link);
+      if (uri != null) {
+        await _launchExternal(uri);
+        return;
+      }
+    }
+
+    // 3) Fallback: search by address
+    final address = Uri.encodeComponent(o.customerAddress);
+    await _launchExternal(
+      Uri.parse('https://www.google.com/maps/search/?api=1&query=$address'),
+    );
   }
 
   Future<void> _handleClaim() async {
@@ -133,61 +252,116 @@ class _OrderCardState extends State<OrderCard> {
         color: _gray50,
         border: Border(bottom: BorderSide(color: _gray100)),
       ),
-      child: Row(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Numéro de commande
-          _Chip(
-            text: '#${order.orderNumber}',
-            bg: Colors.white,
-            border: _gray200,
-            textColor: _gray900,
-            fontWeight: FontWeight.w700,
-            fontSize: 12,
+          Row(
+            children: [
+              // Numéro de commande
+              _Chip(
+                text: '#${order.orderNumber}',
+                bg: Colors.white,
+                border: _gray200,
+                textColor: _gray900,
+                fontWeight: FontWeight.w700,
+                fontSize: 12,
+              ),
+              const SizedBox(width: 6),
+              // Heure
+              _Chip(
+                text: _formatTime(order.createdAt),
+                bg: _gray100,
+                border: Colors.transparent,
+                textColor: _gray500,
+                fontWeight: FontWeight.w500,
+                fontSize: 11,
+                icon: Icons.access_time_outlined,
+              ),
+              // Source plateforme
+              const SizedBox(width: 6),
+              _Chip(
+                text: order.sourcePlatform,
+                bg: _blue50,
+                border: _blue100,
+                textColor: _blue600,
+                fontWeight: FontWeight.w600,
+                fontSize: 10,
+              ),
+              const Spacer(),
+              // Montant
+              Text(
+                '${order.total.toStringAsFixed(0)} F',
+                style: TextStyle(
+                  fontSize: 17,
+                  fontWeight: FontWeight.w800,
+                  color: primary,
+                ),
+              ),
+            ],
           ),
-          const SizedBox(width: 6),
-          // Heure
-          _Chip(
-            text: _formatTime(order.createdAt),
-            bg: _gray100,
-            border: Colors.transparent,
-            textColor: _gray500,
-            fontWeight: FontWeight.w500,
-            fontSize: 11,
-            icon: Icons.access_time_outlined,
-          ),
-          // Source plateforme
-          const SizedBox(width: 6),
-          _Chip(
-            text: order.sourcePlatform,
-            bg: _blue50,
-            border: _blue100,
-            textColor: _blue600,
-            fontWeight: FontWeight.w600,
-            fontSize: 10,
-          ),
-          const Spacer(),
-          // Distance (si disponible)
-          if (order.distanceKm != null)
-            _Chip(
-              text: order.distanceKm! < 1
-                  ? '${(order.distanceKm! * 1000).toStringAsFixed(0)} m'
-                  : '${order.distanceKm!.toStringAsFixed(1)} km',
-              bg: primary.withValues(alpha: 0.1),
-              border: Colors.transparent,
-              textColor: primary,
-              fontWeight: FontWeight.w700,
-              fontSize: 11,
-              icon: Icons.near_me,
-            ),
-          if (order.distanceKm != null) const SizedBox(width: 8),
-          // Montant
-          Text(
-            '${order.total.toStringAsFixed(0)} F',
-            style: TextStyle(
-              fontSize: 17,
-              fontWeight: FontWeight.w800,
-              color: primary,
-            ),
+          const SizedBox(height: 8),
+          Wrap(
+            spacing: 6,
+            runSpacing: 6,
+            children: [
+              if (order.deliveryType != null && order.deliveryType!.isNotEmpty)
+                _Chip(
+                  text: order.deliveryType!,
+                  bg: Colors.white,
+                  border: _gray200,
+                  textColor: _gray600,
+                  fontWeight: FontWeight.w700,
+                  fontSize: 10,
+                  icon: Icons.local_shipping_outlined,
+                ),
+              if (_timeLeft.isNotEmpty)
+                _Chip(
+                  text: _timeLeft,
+                  bg: _urgency == _Urgency.critical
+                      ? const Color(0xFFEF4444)
+                      : _urgency == _Urgency.warning
+                          ? const Color(0xFFF97316)
+                          : const Color(0xFFEDE9FE),
+                  border: Colors.transparent,
+                  textColor: Colors.white,
+                  fontWeight: FontWeight.w800,
+                  fontSize: 10,
+                  icon: Icons.schedule,
+                ),
+              if (order.scheduledTime != null && order.scheduledTime!.isNotEmpty)
+                _Chip(
+                  text: order.scheduledTime!,
+                  bg: Colors.white,
+                  border: _gray200,
+                  textColor: _gray600,
+                  fontWeight: FontWeight.w700,
+                  fontSize: 10,
+                  icon: Icons.schedule,
+                ),
+              if (order.deliveryCost != null)
+                _Chip(
+                  text: 'Livraison ${order.deliveryCost!.toStringAsFixed(0)} F',
+                  bg: Colors.white,
+                  border: _gray200,
+                  textColor: _gray600,
+                  fontWeight: FontWeight.w700,
+                  fontSize: 10,
+                  icon: Icons.attach_money,
+                ),
+              // Distance (si disponible)
+              if (order.distanceKm != null)
+                _Chip(
+                  text: order.distanceKm! < 1
+                      ? '${(order.distanceKm! * 1000).toStringAsFixed(0)} m'
+                      : '${order.distanceKm!.toStringAsFixed(1)} km',
+                  bg: primary.withValues(alpha: 0.1),
+                  border: Colors.transparent,
+                  textColor: primary,
+                  fontWeight: FontWeight.w800,
+                  fontSize: 10,
+                  icon: Icons.near_me,
+                ),
+            ],
           ),
         ],
       ),
@@ -314,45 +488,51 @@ class _OrderCardState extends State<OrderCard> {
         Row(
           children: [
             Expanded(
-              child: Container(
-                padding: const EdgeInsets.symmetric(vertical: 12),
-                decoration: BoxDecoration(
-                  color: _gray50,
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: _gray100),
-                ),
-                child: const Column(
-                  children: [
-                    Icon(Icons.call, size: 20, color: _gray600),
-                    SizedBox(height: 4),
-                    Text('Appeler',
-                        style: TextStyle(
-                            fontSize: 12,
-                            fontWeight: FontWeight.w700,
-                            color: _gray600)),
-                  ],
+              child: GestureDetector(
+                onTap: _callCustomer,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(vertical: 12),
+                  decoration: BoxDecoration(
+                    color: _gray50,
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: _gray100),
+                  ),
+                  child: const Column(
+                    children: [
+                      Icon(Icons.call, size: 20, color: _gray600),
+                      SizedBox(height: 4),
+                      Text('Appeler',
+                          style: TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w700,
+                              color: _gray600)),
+                    ],
+                  ),
                 ),
               ),
             ),
             const SizedBox(width: 10),
             Expanded(
-              child: Container(
-                padding: const EdgeInsets.symmetric(vertical: 12),
-                decoration: BoxDecoration(
-                  color: _blue50,
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: _blue100),
-                ),
-                child: const Column(
-                  children: [
-                    Icon(Icons.navigation, size: 20, color: _blue600),
-                    SizedBox(height: 4),
-                    Text('Y aller',
-                        style: TextStyle(
-                            fontSize: 12,
-                            fontWeight: FontWeight.w700,
-                            color: _blue600)),
-                  ],
+              child: GestureDetector(
+                onTap: _openMap,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(vertical: 12),
+                  decoration: BoxDecoration(
+                    color: _blue50,
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: _blue100),
+                  ),
+                  child: const Column(
+                    children: [
+                      Icon(Icons.navigation, size: 20, color: _blue600),
+                      SizedBox(height: 4),
+                      Text('Y aller',
+                          style: TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w700,
+                              color: _blue600)),
+                    ],
+                  ),
                 ),
               ),
             ),
@@ -510,3 +690,5 @@ class _Chip extends StatelessWidget {
     );
   }
 }
+
+enum _Urgency { normal, warning, critical }

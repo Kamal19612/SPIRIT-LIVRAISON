@@ -16,6 +16,7 @@ class _AdminOrdersScreenState extends State<AdminOrdersScreen> {
   static const _filters = [
     ('ALL', 'Toutes'),
     ('CONFIRMED', 'En attente'),
+    ('REJECTED', 'Rejetées'),
     ('SHIPPED', 'En livraison'),
     ('DELIVERED', 'Livrées'),
   ];
@@ -28,6 +29,7 @@ class _AdminOrdersScreenState extends State<AdminOrdersScreen> {
   Color _statusColor(String status) {
     switch (status) {
       case 'CONFIRMED': return const Color(0xFFF59E0B);
+      case 'REJECTED':  return const Color(0xFFEF4444);
       case 'SHIPPED':
       case 'CLAIMED':   return const Color(0xFF3B82F6);
       case 'DELIVERED': return const Color(0xFF10B981);
@@ -38,6 +40,7 @@ class _AdminOrdersScreenState extends State<AdminOrdersScreen> {
   String _statusLabel(String status) {
     switch (status) {
       case 'CONFIRMED': return 'En attente';
+      case 'REJECTED':  return 'Rejetée';
       case 'SHIPPED':   return 'En livraison';
       case 'CLAIMED':   return 'Prise en charge';
       case 'DELIVERED': return 'Livrée';

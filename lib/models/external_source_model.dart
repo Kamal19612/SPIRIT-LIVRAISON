@@ -20,12 +20,27 @@ class ExternalSource {
   // ── Config accessors — REST polling ─────────────────────────────────────────
 
   String get url           => config['url']           as String? ?? '';
+  // api_key is stored in secure storage (see ExternalSourceSecrets)
   String get apiKey        => config['api_key']        as String? ?? '';
   String get authType      => config['auth_type']      as String? ?? 'none';
   String get responsePath  => config['response_path']  as String? ?? '';
   String get lastSyncAt    => config['last_sync_at']   as String? ?? '';
   String get lastError     => config['last_error']     as String? ?? '';
   int    get syncedCount   => (config['synced_count']  as num?)?.toInt() ?? 0;
+
+  /// Dot-notation path to a stable external identifier inside the raw order JSON.
+  /// Example: "id" or "order.id" or "ref_cmd".
+  String get idFieldPath => config['id_field'] as String? ?? '';
+
+  /// Optional query param name used to request incremental updates since last_sync_at.
+  /// Example: "updated_since" -> ?updated_since=2026-04-21T00:00:00Z
+  String get sinceParam => config['since_param'] as String? ?? '';
+
+  /// Optional pagination param names.
+  String get pageParam  => config['page_param']  as String? ?? '';
+  String get limitParam => config['limit_param'] as String? ?? '';
+
+  int get pageSize => (config['page_size'] as num?)?.toInt() ?? 50;
 
   // ── Config accessors — Webhook ───────────────────────────────────────────────
 

@@ -1,6 +1,7 @@
 import '../database/orders_dao.dart';
 import '../models/order_model.dart';
 import 'auth_service.dart';
+import 'store_api_bridge.dart';
 
 class OrderService {
   OrderService._();
@@ -18,6 +19,10 @@ class OrderService {
 
   Future<void> claimOrder(int orderId) async {
     final userId = await AuthService.instance.getCurrentUserId();
+    final order = await _dao.getOrderById(orderId);
+    if (order != null && await StoreApiBridge.instance.shouldSyncOrder(order)) {
+      await StoreApiBridge.instance.claimDeliveryOrder(order.id);
+    }
     await _dao.claimOrderLocal(orderId, userId);
   }
 
@@ -27,9 +32,16 @@ class OrderService {
     // Vérifie le code de confirmation si défini
     if (order != null &&
         order.confirmationCode != null &&
-        order.confirmationCode!.isNotEmpty &&
-        order.confirmationCode != code) {
-      throw Exception('Code de validation incorrect');
+        order.confirmationCode!.isNotEmpty) {
+      final a = order.confirmationCode!.trim();
+      final b = code.trim();
+      if (a.toLowerCase() != b.toLowerCase()) {
+        throw Exception('Code de validation incorrect');
+      }
+    }
+
+    if (order != null && await StoreApiBridge.instance.shouldSyncOrder(order)) {
+      await StoreApiBridge.instance.completeDeliveryOnStore(order.id, code);
     }
 
     await _dao.completeOrderLocal(orderId);

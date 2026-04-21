@@ -75,6 +75,13 @@ class LocalDatabase {
         customerNotes     TEXT,
         customerLatitude  REAL,
         customerLongitude REAL,
+        manualLocationLink TEXT,
+        deliveryType       TEXT,
+        scheduledTime      TEXT,
+        deliveryCost       REAL,
+        distance           REAL,
+        subtotal           REAL    DEFAULT 0,
+        tax                REAL    DEFAULT 0,
         total             REAL    DEFAULT 0,
         status            TEXT    DEFAULT 'CONFIRMED',
         sourcePlatform    TEXT    DEFAULT 'manual',
@@ -181,6 +188,9 @@ class LocalDatabase {
     if (oldVersion < 5) {
       await _migrateToV5(db);
     }
+    if (oldVersion < 6) {
+      await _migrateToV6(db);
+    }
   }
 
   Future<void> _migrateToV4(Database db) async {
@@ -229,6 +239,26 @@ class LocalDatabase {
     await addCol('profession', 'ALTER TABLE users ADD COLUMN profession TEXT');
     await addCol('cnib_issue_date', 'ALTER TABLE users ADD COLUMN cnib_issue_date TEXT');
     await addCol('cnib_expiry_date', 'ALTER TABLE users ADD COLUMN cnib_expiry_date TEXT');
+  }
+
+  Future<void> _migrateToV6(Database db) async {
+    final cols = await db.rawQuery('PRAGMA table_info(orders)');
+    final names = cols.map((c) => c['name'] as String).toSet();
+
+    Future<void> addCol(String col, String ddl) async {
+      if (!names.contains(col)) {
+        await db.execute(ddl);
+      }
+    }
+
+    await addCol('manualLocationLink',
+        'ALTER TABLE orders ADD COLUMN manualLocationLink TEXT');
+    await addCol('deliveryType', 'ALTER TABLE orders ADD COLUMN deliveryType TEXT');
+    await addCol('scheduledTime', 'ALTER TABLE orders ADD COLUMN scheduledTime TEXT');
+    await addCol('deliveryCost', 'ALTER TABLE orders ADD COLUMN deliveryCost REAL');
+    await addCol('distance', 'ALTER TABLE orders ADD COLUMN distance REAL');
+    await addCol('subtotal', 'ALTER TABLE orders ADD COLUMN subtotal REAL DEFAULT 0');
+    await addCol('tax', 'ALTER TABLE orders ADD COLUMN tax REAL DEFAULT 0');
   }
 
   Future<void> clearOrders() async {

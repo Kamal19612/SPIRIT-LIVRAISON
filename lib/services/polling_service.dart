@@ -7,6 +7,7 @@ import '../models/external_source_model.dart';
 import '../services/adapters/generic_rest_adapter.dart';
 import '../services/assignment_service.dart';
 import '../services/notification_service.dart';
+import '../services/external_source_secrets.dart';
 
 enum SourceSyncStatus { idle, syncing, ok, error }
 
@@ -87,11 +88,28 @@ class PollingService extends ChangeNotifier {
     String? errorMsg;
 
     try {
-      final rawOrders = await _adapter.fetchRawOrders(source);
+      final since = () {
+        final v = source.lastSyncAt.trim();
+        if (v.isEmpty) return null;
+        return DateTime.tryParse(v);
+      }();
+
+      // Use secure storage for API key (and migrate legacy config.api_key if needed).
+      final apiKey = await ExternalSourceSecrets.instance.migrateApiKeyIfNeeded(source);
+      if ((source.config['api_key'] as String?)?.trim().isNotEmpty == true) {
+        // Best-effort cleanup: remove plaintext key from SQLite.
+        await _updateSourceConfig(source, {'api_key': ''});
+      }
+
+      final rawOrders = await _adapter.fetchRawOrders(
+        source,
+        apiKeyOverride: apiKey,
+        since: since,
+      );
       final mapping   = source.fieldMapping;
 
       for (final raw in rawOrders) {
-        final order = _adapter.normalizeOrder(raw, mapping, source.name);
+        final order = _adapter.normalizeOrder(raw, mapping, source.name, source.idFieldPath);
 
         // Deduplication check
         final existing = await OrdersDao.instance.getOrderByNumber(order.orderNumber);
