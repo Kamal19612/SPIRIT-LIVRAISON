@@ -184,8 +184,12 @@ class SupabaseRelayService {
                 ? '$err\n\n'
                     'Si vous voyez HTTP 400 sur l’upgrade WebSocket : le reverse proxy devant '
                     'votre URL Supabase (Nginx, Caddy, Cloudflare…) doit transmettre Upgrade / '
-                    'Connection et ne pas couper HTTP/2 de façon incompatible. Réf. : '
-                    'supabase/volumes/proxy/nginx/supabase-nginx.conf.tpl et KONG_PROXY_LISTEN dans docker-compose.'
+                    'Connection et ne pas couper HTTP/2 de façon incompatible. '
+                    'Sous Nginx, l’emplacement /realtime ne doit pas partager un upstream '
+                    '« keepalive » avec le reste des routes (sinon Connection: keep-alive vers Kong). '
+                    'Réf. : supabase/volumes/proxy/nginx/supabase-nginx.conf.tpl et KONG_PROXY_LISTEN dans docker-compose.\n'
+                    'Note : l’URL d’erreur peut afficher « :0 » avec https — c’est l’affichage Dart '
+                    'du port implicite pour wss, pas forcément une mauvaise URL.'
                 : err,
             lastInsertAt: status.value.lastInsertAt,
             insertCount: status.value.insertCount,
