@@ -1,5 +1,4 @@
 import 'dart:convert';
-import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../models/external_source_model.dart';
@@ -479,6 +478,7 @@ class _IntegrationsTab extends StatelessWidget {
       body: sources.isEmpty
           ? Column(
               children: [
+                const _ConnectionCard(),
                 introCard(),
                 Expanded(
                   child: Center(
@@ -512,6 +512,7 @@ class _IntegrationsTab extends StatelessWidget {
           : Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
+                const _ConnectionCard(),
                 introCard(),
                 Expanded(
                   child: ListView.builder(
@@ -534,6 +535,202 @@ class _IntegrationsTab extends StatelessWidget {
               backgroundColor: primary,
               foregroundColor: Colors.white,
             ),
+    );
+  }
+}
+
+class _ConnectionCard extends StatefulWidget {
+  const _ConnectionCard();
+
+  @override
+  State<_ConnectionCard> createState() => _ConnectionCardState();
+}
+
+class _ConnectionCardState extends State<_ConnectionCard> {
+  final _storeOriginCtrl = TextEditingController();
+  final _storePlatformCtrl = TextEditingController();
+  final _supabaseUrlCtrl = TextEditingController();
+  final _supabaseAnonCtrl = TextEditingController();
+
+  bool _loaded = false;
+  bool _isSaving = false;
+  bool _isTestingSupabase = false;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_loaded) return;
+    _loaded = true;
+
+    AppConfigDao.instance.getValue('store_api_origin').then((v) {
+      if (mounted) setState(() => _storeOriginCtrl.text = v ?? '');
+    });
+    AppConfigDao.instance.getValue('store_source_platform').then((v) {
+      if (mounted) setState(() => _storePlatformCtrl.text = v ?? '');
+    });
+    AppConfigDao.instance.getValue('supabase_url').then((v) {
+      if (mounted) setState(() => _supabaseUrlCtrl.text = v ?? '');
+    });
+    AppConfigDao.instance.getValue('supabase_anon_key').then((v) {
+      if (mounted) setState(() => _supabaseAnonCtrl.text = v ?? '');
+    });
+  }
+
+  @override
+  void dispose() {
+    _storeOriginCtrl.dispose();
+    _storePlatformCtrl.dispose();
+    _supabaseUrlCtrl.dispose();
+    _supabaseAnonCtrl.dispose();
+    super.dispose();
+  }
+
+  Future<void> _save() async {
+    if (_isSaving) return;
+    setState(() => _isSaving = true);
+    try {
+      final storeOrigin = normalizeHttpOrigin(_storeOriginCtrl.text) ?? '';
+      final supabaseUrl = normalizeHttpOrigin(_supabaseUrlCtrl.text) ?? '';
+      await AppConfigService.instance.save({
+        'store_api_origin': storeOrigin,
+        'store_source_platform': _storePlatformCtrl.text.trim(),
+        'supabase_url': supabaseUrl,
+        'supabase_anon_key': _supabaseAnonCtrl.text.trim(),
+      });
+
+      await SupabaseRelayService.instance.stop();
+      await SupabaseRelayService.instance.startIfConfigured();
+
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Configuration sauvegardée'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    } finally {
+      if (mounted) setState(() => _isSaving = false);
+    }
+  }
+
+  Future<void> _testSupabase() async {
+    if (_isTestingSupabase) return;
+    setState(() => _isTestingSupabase = true);
+    try {
+      final url = normalizeHttpOrigin(_supabaseUrlCtrl.text) ?? '';
+      final anonKey = _supabaseAnonCtrl.text.trim();
+      final msg = await SupabaseRelayService.instance.testConnection(
+        urlOverride: url,
+        anonKeyOverride: anonKey,
+      );
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(msg), behavior: SnackBarBehavior.floating),
+      );
+    } finally {
+      if (mounted) setState(() => _isTestingSupabase = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final primary = Theme.of(context).colorScheme.primary;
+    final key = _supabaseAnonCtrl.text.trim();
+    final keyOk = key.isEmpty || key.startsWith('eyJ');
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(12, 12, 12, 0),
+      child: Container(
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: const Color(0xFFF3F4F6)),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Row(
+              children: [
+                Icon(Icons.link, size: 18, color: primary),
+                const SizedBox(width: 8),
+                const Text(
+                  'Connexion',
+                  style: TextStyle(
+                    fontWeight: FontWeight.w800,
+                    fontSize: 13,
+                    color: Color(0xFF111827),
+                  ),
+                ),
+                const Spacer(),
+                TextButton.icon(
+                  onPressed: _isSaving ? null : _save,
+                  icon: const Icon(Icons.save_outlined, size: 18),
+                  label: Text(_isSaving ? 'Sauvegarde...' : 'Sauvegarder'),
+                ),
+              ],
+            ),
+            const SizedBox(height: 10),
+            _SettingField(
+              ctrl: _storeOriginCtrl,
+              label: 'URL API boutique',
+              icon: Icons.cloud_sync_outlined,
+              hint: 'https://sucre-store.socialracine.com',
+              keyboardType: TextInputType.url,
+            ),
+            const SizedBox(height: 10),
+            _SettingField(
+              ctrl: _storePlatformCtrl,
+              label: 'SourcePlatform',
+              icon: Icons.hub_outlined,
+              hint: 'sucre_store',
+            ),
+            const SizedBox(height: 10),
+            _SettingField(
+              ctrl: _supabaseUrlCtrl,
+              label: 'Supabase URL',
+              icon: Icons.cloud_outlined,
+              hint: 'https://spdelivery.socialracine.com',
+              keyboardType: TextInputType.url,
+            ),
+            const SizedBox(height: 10),
+            _SettingField(
+              ctrl: _supabaseAnonCtrl,
+              label: 'Supabase ANON KEY',
+              icon: Icons.vpn_key_outlined,
+              hint: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...',
+              keyboardType: TextInputType.multiline,
+              maxLines: 2,
+              onChanged: (_) => setState(() {}),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              key.isEmpty
+                  ? 'Clé vide: Realtime désactivé.'
+                  : keyOk
+                      ? 'Format OK. Longueur=${key.length}.'
+                      : 'Clé invalide: elle doit commencer par "eyJ".',
+              style: TextStyle(
+                fontSize: 11,
+                color: keyOk ? const Color(0xFF16A34A) : const Color(0xFFDC2626),
+                height: 1.25,
+              ),
+            ),
+            const SizedBox(height: 10),
+            OutlinedButton.icon(
+              onPressed: _isTestingSupabase ? null : _testSupabase,
+              icon: _isTestingSupabase
+                  ? const SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.wifi_tethering_outlined),
+              label: Text(_isTestingSupabase ? 'Test...' : 'Tester Supabase'),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }
@@ -1608,46 +1805,13 @@ class _AddSourceSheetState extends State<_AddSourceSheet> {
 
 // ── Widgets communs ──────────────────────────────────────────────────────────
 
-class _Section extends StatelessWidget {
-  final String title;
-  final List<Widget> children;
-  const _Section({required this.title, required this.children});
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: const Color(0xFFF3F4F6)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            title.toUpperCase(),
-            style: const TextStyle(
-              fontSize: 11,
-              fontWeight: FontWeight.w800,
-              color: Color(0xFF9CA3AF),
-              letterSpacing: 0.8,
-            ),
-          ),
-          const SizedBox(height: 12),
-          ...children,
-        ],
-      ),
-    );
-  }
-}
-
 class _SettingField extends StatelessWidget {
   final TextEditingController ctrl;
   final String label;
   final IconData icon;
   final String? hint;
   final TextInputType keyboardType;
+  final int? maxLines;
   final ValueChanged<String>? onChanged;
 
   const _SettingField({
@@ -1656,6 +1820,7 @@ class _SettingField extends StatelessWidget {
     required this.icon,
     this.hint,
     this.keyboardType = TextInputType.text,
+    this.maxLines,
     this.onChanged,
   });
 
@@ -1664,6 +1829,7 @@ class _SettingField extends StatelessWidget {
     return TextFormField(
       controller: ctrl,
       keyboardType: keyboardType,
+      maxLines: maxLines ?? 1,
       onChanged: onChanged,
       decoration: InputDecoration(
         labelText: label,
