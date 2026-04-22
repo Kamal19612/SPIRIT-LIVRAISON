@@ -395,57 +395,58 @@ class _IntegrationsTab extends StatelessWidget {
 
     return Scaffold(
       backgroundColor: const Color(0xFFF9FAFB),
-      body: sources.isEmpty
-          ? Column(
-              children: [
-                _ConnectionCard(onAddShop: () => _showAddSourceSheet(context)),
-                introCard(),
-                Expanded(
-                  child: Center(
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        const Icon(Icons.cloud_off,
-                            size: 56, color: Color(0xFFD1D5DB)),
-                        const SizedBox(height: 12),
-                        const Text(
-                          'Aucune intégration configurée',
-                          style: TextStyle(
-                              color: Color(0xFF6B7280), fontSize: 14),
+      body: CustomScrollView(
+        slivers: [
+          SliverToBoxAdapter(
+            child: _ConnectionCard(onAddShop: () => _showAddSourceSheet(context)),
+          ),
+          SliverToBoxAdapter(child: introCard()),
+          if (sources.isEmpty)
+            SliverFillRemaining(
+              hasScrollBody: false,
+              child: Center(
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 24),
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Icon(Icons.cloud_off, size: 56, color: Color(0xFFD1D5DB)),
+                      const SizedBox(height: 12),
+                      const Text(
+                        'Aucune intégration configurée',
+                        style: TextStyle(color: Color(0xFF6B7280), fontSize: 14),
+                      ),
+                      const SizedBox(height: 16),
+                      ElevatedButton.icon(
+                        onPressed: () => _showAddSourceSheet(context),
+                        icon: const Icon(Icons.add),
+                        label: const Text('Ajouter une source'),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: primary,
+                          foregroundColor: Colors.white,
                         ),
-                        const SizedBox(height: 16),
-                        ElevatedButton.icon(
-                          onPressed: () => _showAddSourceSheet(context),
-                          icon: const Icon(Icons.add),
-                          label: const Text('Ajouter une source'),
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: primary,
-                            foregroundColor: Colors.white,
-                          ),
-                        ),
-                      ],
-                    ),
+                      ),
+                    ],
                   ),
                 ),
-              ],
+              ),
             )
-          : Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                _ConnectionCard(onAddShop: () => _showAddSourceSheet(context)),
-                introCard(),
-                Expanded(
-                  child: ListView.builder(
-                    padding: const EdgeInsets.all(12),
-                    itemCount: sources.length,
-                    itemBuilder: (_, i) => _SourceTile(
-                      source: sources[i],
-                      state: polling.stateFor(sources[i].id ?? -1),
-                    ),
+          else
+            SliverPadding(
+              padding: const EdgeInsets.fromLTRB(12, 0, 12, 88),
+              sliver: SliverList(
+                delegate: SliverChildBuilderDelegate(
+                  (context, i) => _SourceTile(
+                    source: sources[i],
+                    state: polling.stateFor(sources[i].id ?? -1),
                   ),
+                  childCount: sources.length,
                 ),
-              ],
+              ),
             ),
+        ],
+      ),
       floatingActionButton: sources.isEmpty
           ? null
           : FloatingActionButton.extended(
