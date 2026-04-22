@@ -79,7 +79,22 @@ class SupabaseRelayService {
     _channel = null;
     _started = false;
 
-    _client = SupabaseClient(url, anonKey);
+    if (kDebugMode) {
+      debugPrint(
+        'SupabaseRelayService: URL résolue pour SupabaseClient (longueur=${url.length}) — '
+        'vérifiez dans Intégrations / SQLite app_config.supabase_url si ce n’est pas attendu.',
+      );
+      debugPrint('SupabaseRelayService: URL = $url');
+    }
+
+    // Défaut realtime_client : 10s — trop court si le proxy TLS / DNS est lent → timedOut puis retry.
+    _client = SupabaseClient(
+      url,
+      anonKey,
+      realtimeClientOptions: const RealtimeClientOptions(
+        timeout: Duration(seconds: 45),
+      ),
+    );
     _clientUrl = url;
     _clientAnonKey = anonKey;
     return _client;
@@ -159,12 +174,19 @@ class SupabaseRelayService {
         if (ch != null) {
           ch.unsubscribe();
         }
+        final hint400 = err.contains('400') || err.contains('not upgraded to websocket');
         _setStatus(
           SupabaseRelayStatus(
             configured: true,
             phase: SupabaseRelayPhase.error,
             headline: 'Realtime : erreur d’abonnement',
-            detail: err,
+            detail: hint400
+                ? '$err\n\n'
+                    'Si vous voyez HTTP 400 sur l’upgrade WebSocket : le reverse proxy devant '
+                    'votre URL Supabase (Nginx, Caddy, Cloudflare…) doit transmettre Upgrade / '
+                    'Connection et ne pas couper HTTP/2 de façon incompatible. Réf. : '
+                    'supabase/volumes/proxy/nginx/supabase-nginx.conf.tpl et KONG_PROXY_LISTEN dans docker-compose.'
+                : err,
             lastInsertAt: status.value.lastInsertAt,
             insertCount: status.value.insertCount,
           ),
@@ -183,7 +205,8 @@ class SupabaseRelayService {
             configured: true,
             phase: SupabaseRelayPhase.error,
             headline: 'Realtime : délai dépassé',
-            detail: 'Le serveur n’a pas confirmé l’abonnement à temps (réseau / pare-feu).',
+            detail: 'Kong / le proxy n’a pas répondu assez vite à la poignée de main WebSocket '
+                '(réseau lent, ou TLS bloqué). Réessayez « Rafraîchir l’abonnement » ; le délai côté app est 45s.',
             lastInsertAt: status.value.lastInsertAt,
             insertCount: status.value.insertCount,
           ),

@@ -19,5 +19,22 @@ String? normalizeHttpOrigin(String raw) {
     s = s.substring(0, s.length - 1);
   }
 
+  // Port explicite invalide (ex. « :0 » collé par erreur). replace(port: null) ne retire pas :0.
+  final parsed = Uri.tryParse(s);
+  if (parsed != null &&
+      parsed.hasPort &&
+      (parsed.port <= 0 || parsed.port > 65535)) {
+    s = Uri(
+      scheme: parsed.scheme.isEmpty ? null : parsed.scheme,
+      host: parsed.host.isEmpty ? null : parsed.host,
+      path: parsed.path,
+      query: parsed.hasQuery ? parsed.query : null,
+      fragment: parsed.hasFragment ? parsed.fragment : null,
+    ).toString();
+    while (s.endsWith('/')) {
+      s = s.substring(0, s.length - 1);
+    }
+  }
+
   return s.isEmpty ? null : s;
 }
