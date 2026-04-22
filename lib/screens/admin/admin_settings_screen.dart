@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../models/external_source_model.dart';
@@ -9,6 +10,7 @@ import '../../services/app_config_service.dart';
 import '../../services/polling_service.dart';
 import '../../services/external_source_secrets.dart';
 import '../../services/supabase_relay_service.dart';
+import '../../services/supabase_relay_status.dart';
 import '../../utils/url_normalize.dart';
 
 class AdminSettingsScreen extends StatelessWidget {
@@ -59,15 +61,8 @@ class _AppConfigTabState extends State<_AppConfigTab> {
   final _phoneCtrl    = TextEditingController();
   final _emailCtrl    = TextEditingController();
   final _whatsappCtrl = TextEditingController();
-  final _storeOriginCtrl   = TextEditingController();
-  final _storePlatformCtrl = TextEditingController();
-  final _supabaseUrlCtrl   = TextEditingController();
-  final _supabaseAnonCtrl  = TextEditingController();
   bool _isSaving = false;
   bool _initialized = false;
-  bool _storeFieldsLoaded = false;
-  bool _supabaseFieldsLoaded = false;
-  bool _isTestingSupabase = false;
 
   @override
   void didChangeDependencies() {
@@ -82,24 +77,6 @@ class _AppConfigTabState extends State<_AppConfigTab> {
       _whatsappCtrl.text = config.supportWhatsapp;
       _initialized = true;
     }
-    if (!_storeFieldsLoaded) {
-      _storeFieldsLoaded = true;
-      AppConfigDao.instance.getValue('store_api_origin').then((v) {
-        if (mounted) setState(() => _storeOriginCtrl.text = v ?? '');
-      });
-      AppConfigDao.instance.getValue('store_source_platform').then((v) {
-        if (mounted) setState(() => _storePlatformCtrl.text = v ?? '');
-      });
-    }
-    if (!_supabaseFieldsLoaded) {
-      _supabaseFieldsLoaded = true;
-      AppConfigDao.instance.getValue('supabase_url').then((v) {
-        if (mounted) setState(() => _supabaseUrlCtrl.text = v ?? '');
-      });
-      AppConfigDao.instance.getValue('supabase_anon_key').then((v) {
-        if (mounted) setState(() => _supabaseAnonCtrl.text = v ?? '');
-      });
-    }
   }
 
   @override
@@ -110,10 +87,6 @@ class _AppConfigTabState extends State<_AppConfigTab> {
     _phoneCtrl.dispose();
     _emailCtrl.dispose();
     _whatsappCtrl.dispose();
-    _storeOriginCtrl.dispose();
-    _storePlatformCtrl.dispose();
-    _supabaseUrlCtrl.dispose();
-    _supabaseAnonCtrl.dispose();
     super.dispose();
   }
 
@@ -128,18 +101,6 @@ class _AppConfigTabState extends State<_AppConfigTab> {
         contactEmail:      _emailCtrl.text.trim(),
         supportWhatsapp:   _whatsappCtrl.text.trim(),
       );
-      final storeOrigin = normalizeHttpOrigin(_storeOriginCtrl.text) ?? '';
-      final supabaseUrl = normalizeHttpOrigin(_supabaseUrlCtrl.text) ?? '';
-      await AppConfigService.instance.save({
-        'store_api_origin':        storeOrigin,
-        'store_source_platform':   _storePlatformCtrl.text.trim(),
-        'supabase_url':            supabaseUrl,
-        'supabase_anon_key':       _supabaseAnonCtrl.text.trim(),
-      });
-
-      // Redémarrer l’abonnement Realtime si les valeurs changent.
-      await SupabaseRelayService.instance.stop();
-      await SupabaseRelayService.instance.startIfConfigured();
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -151,20 +112,6 @@ class _AppConfigTabState extends State<_AppConfigTab> {
       }
     } finally {
       if (mounted) setState(() => _isSaving = false);
-    }
-  }
-
-  Future<void> _testSupabase() async {
-    if (_isTestingSupabase) return;
-    setState(() => _isTestingSupabase = true);
-    try {
-      final msg = await SupabaseRelayService.instance.testConnection();
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(msg), behavior: SnackBarBehavior.floating),
-      );
-    } finally {
-      if (mounted) setState(() => _isTestingSupabase = false);
     }
   }
 
@@ -313,71 +260,18 @@ class _AppConfigTabState extends State<_AppConfigTab> {
             ],
           ),
           const SizedBox(height: 16),
-          _Section(
-            title: 'API boutique (prise en charge / livré)',
-            children: [
-              const Text(
-                'Pour synchroniser Spirit avec Sucre Store : URL d’origine du backend '
-                '(sans /api), et le nom exact de la source des commandes (identique au '
-                '« Nom de la plateforme » dans Intégrations → webhook). À la connexion, '
-                'le livreur utilise le même mot de passe que sur la boutique pour obtenir un JWT.',
-                style: TextStyle(fontSize: 11, color: Color(0xFF6B7280), height: 1.4),
-              ),
-              const SizedBox(height: 12),
-              _SettingField(
-                ctrl: _storeOriginCtrl,
-                label: 'URL origine API (ex. https://boutique.com:8081)',
-                icon: Icons.cloud_sync_outlined,
-                hint: 'Laisser vide pour désactiver la sync API',
-                keyboardType: TextInputType.url,
-              ),
-              const SizedBox(height: 12),
-              _SettingField(
-                ctrl: _storePlatformCtrl,
-                label: 'Nom plateforme commandes (sourcePlatform)',
-                icon: Icons.hub_outlined,
-                hint: 'ex. Sucre Store — comme la source webhook',
-              ),
-            ],
-          ),
-          const SizedBox(height: 24),
-
-          _Section(
-            title: 'Supabase Realtime (réception commandes)',
-            children: [
-              const Text(
-                'Indispensable pour recevoir les commandes en temps réel (WebhookRelay → table webhook_events). '
-                'Sur mobile, évitez 127.0.0.1 : utilisez une URL accessible depuis le téléphone.',
-                style: TextStyle(fontSize: 11, color: Color(0xFF6B7280), height: 1.4),
-              ),
-              const SizedBox(height: 12),
-              _SettingField(
-                ctrl: _supabaseUrlCtrl,
-                label: 'Supabase URL (ex. http://IP:8000)',
-                icon: Icons.cloud_outlined,
-                hint: 'http://5.189.133.248:8000',
-                keyboardType: TextInputType.url,
-              ),
-              const SizedBox(height: 12),
-              _SettingField(
-                ctrl: _supabaseAnonCtrl,
-                label: 'Supabase ANON KEY',
-                icon: Icons.vpn_key_outlined,
-                hint: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...',
-              ),
-              const SizedBox(height: 12),
-              OutlinedButton.icon(
-                onPressed: _isTestingSupabase ? null : _testSupabase,
-                icon: _isTestingSupabase
-                    ? const SizedBox(
-                        width: 16,
-                        height: 16,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
-                    : const Icon(Icons.wifi_tethering_outlined),
-                label: Text(_isTestingSupabase ? 'Test...' : 'Tester Supabase'),
-              ),
-            ],
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: const Color(0xFFF9FAFB),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: const Color(0xFFE5E7EB)),
+            ),
+            child: const Text(
+              'La connexion API boutique, Supabase Realtime et chaque boutique '
+              '(webhook / polling) se configurent dans l’onglet Intégrations.',
+              style: TextStyle(fontSize: 12, color: Color(0xFF4B5563), height: 1.35),
+            ),
           ),
           const SizedBox(height: 24),
 
@@ -400,6 +294,32 @@ class _AppConfigTabState extends State<_AppConfigTab> {
           ),
         ],
       ),
+    );
+  }
+}
+
+class _Section extends StatelessWidget {
+  final String title;
+  final List<Widget> children;
+
+  const _Section({required this.title, required this.children});
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Text(
+          title,
+          style: const TextStyle(
+            fontSize: 13,
+            fontWeight: FontWeight.w700,
+            color: Color(0xFF111827),
+          ),
+        ),
+        const SizedBox(height: 12),
+        ...children,
+      ],
     );
   }
 }
@@ -478,7 +398,7 @@ class _IntegrationsTab extends StatelessWidget {
       body: sources.isEmpty
           ? Column(
               children: [
-                const _ConnectionCard(),
+                _ConnectionCard(onAddShop: () => _showAddSourceSheet(context)),
                 introCard(),
                 Expanded(
                   child: Center(
@@ -512,7 +432,7 @@ class _IntegrationsTab extends StatelessWidget {
           : Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                const _ConnectionCard(),
+                _ConnectionCard(onAddShop: () => _showAddSourceSheet(context)),
                 introCard(),
                 Expanded(
                   child: ListView.builder(
@@ -540,7 +460,9 @@ class _IntegrationsTab extends StatelessWidget {
 }
 
 class _ConnectionCard extends StatefulWidget {
-  const _ConnectionCard();
+  const _ConnectionCard({required this.onAddShop});
+
+  final VoidCallback onAddShop;
 
   @override
   State<_ConnectionCard> createState() => _ConnectionCardState();
@@ -555,6 +477,14 @@ class _ConnectionCardState extends State<_ConnectionCard> {
   bool _loaded = false;
   bool _isSaving = false;
   bool _isTestingSupabase = false;
+  bool _refreshingRelay = false;
+
+  String _formatDiagTime(DateTime t) {
+    final l = t.toLocal();
+    final mm = l.minute.toString().padLeft(2, '0');
+    final hh = l.hour.toString().padLeft(2, '0');
+    return '${l.day.toString().padLeft(2, '0')}/${l.month.toString().padLeft(2, '0')} $hh:$mm';
+  }
 
   @override
   void didChangeDependencies() {
@@ -598,13 +528,12 @@ class _ConnectionCardState extends State<_ConnectionCard> {
         'supabase_anon_key': _supabaseAnonCtrl.text.trim(),
       });
 
-      await SupabaseRelayService.instance.stop();
-      await SupabaseRelayService.instance.startIfConfigured();
+      await SupabaseRelayService.instance.restart();
 
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Configuration sauvegardée'),
+          content: Text('Configuration sauvegardée — abonnement Realtime relancé.'),
           behavior: SnackBarBehavior.floating,
         ),
       );
@@ -632,11 +561,62 @@ class _ConnectionCardState extends State<_ConnectionCard> {
     }
   }
 
+  Future<void> _refreshRealtimeRelay() async {
+    if (_refreshingRelay) return;
+    setState(() => _refreshingRelay = true);
+    try {
+      await SupabaseRelayService.instance.restart();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Abonnement Realtime relancé.'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    } finally {
+      if (mounted) setState(() => _refreshingRelay = false);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final primary = Theme.of(context).colorScheme.primary;
     final key = _supabaseAnonCtrl.text.trim();
     final keyOk = key.isEmpty || key.startsWith('eyJ');
+
+    Widget sectionTitle(String n, String title) => Padding(
+          padding: const EdgeInsets.only(top: 4, bottom: 8),
+          child: Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFEFF6FF),
+                  borderRadius: BorderRadius.circular(6),
+                ),
+                child: Text(
+                  n,
+                  style: TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w800,
+                    color: primary,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  title,
+                  style: const TextStyle(
+                    fontWeight: FontWeight.w700,
+                    fontSize: 12.5,
+                    color: Color(0xFF111827),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        );
 
     return Padding(
       padding: const EdgeInsets.fromLTRB(12, 12, 12, 0),
@@ -652,45 +632,47 @@ class _ConnectionCardState extends State<_ConnectionCard> {
           children: [
             Row(
               children: [
-                Icon(Icons.link, size: 18, color: primary),
+                Icon(Icons.settings_ethernet, size: 20, color: primary),
                 const SizedBox(width: 8),
-                const Text(
-                  'Connexion',
-                  style: TextStyle(
-                    fontWeight: FontWeight.w800,
-                    fontSize: 13,
-                    color: Color(0xFF111827),
+                const Expanded(
+                  child: Text(
+                    'Formulaire connexion',
+                    style: TextStyle(
+                      fontWeight: FontWeight.w800,
+                      fontSize: 14,
+                      color: Color(0xFF111827),
+                    ),
                   ),
                 ),
-                const Spacer(),
                 TextButton.icon(
                   onPressed: _isSaving ? null : _save,
                   icon: const Icon(Icons.save_outlined, size: 18),
-                  label: Text(_isSaving ? 'Sauvegarde...' : 'Sauvegarder'),
+                  label: Text(_isSaving ? '…' : 'Enregistrer'),
                 ),
               ],
             ),
-            const SizedBox(height: 10),
-            _SettingField(
-              ctrl: _storeOriginCtrl,
-              label: 'URL API boutique',
-              icon: Icons.cloud_sync_outlined,
-              hint: 'https://sucre-store.socialracine.com',
-              keyboardType: TextInputType.url,
+            const SizedBox(height: 8),
+            const Text(
+              'Un même projet Spirit peut recevoir des commandes de plusieurs boutiques : '
+              'une URL Supabase partagée, une API « boutique par défaut » pour la connexion livreur, '
+              'et une fiche par boutique ci‑dessous (webhook ou API REST).',
+              style: TextStyle(fontSize: 11.5, color: Color(0xFF6B7280), height: 1.4),
             ),
-            const SizedBox(height: 10),
-            _SettingField(
-              ctrl: _storePlatformCtrl,
-              label: 'SourcePlatform',
-              icon: Icons.hub_outlined,
-              hint: 'sucre_store',
+            const SizedBox(height: 14),
+            const Divider(height: 1),
+            sectionTitle('1', 'Temps réel — Supabase'),
+            const Text(
+              'Le relais insère chaque événement dans la table webhook_events. '
+              'Le test « OK » vérifie surtout la lecture SQL ; la réception instantanée exige aussi '
+              'Realtime activé pour cette table dans le tableau Supabase (publication + REPLICA IDENTITY).',
+              style: TextStyle(fontSize: 11, color: Color(0xFF6B7280), height: 1.35),
             ),
             const SizedBox(height: 10),
             _SettingField(
               ctrl: _supabaseUrlCtrl,
               label: 'Supabase URL',
               icon: Icons.cloud_outlined,
-              hint: 'https://spdelivery.socialracine.com',
+              hint: 'https://votre-projet.supabase.co',
               keyboardType: TextInputType.url,
             ),
             const SizedBox(height: 10),
@@ -706,10 +688,10 @@ class _ConnectionCardState extends State<_ConnectionCard> {
             const SizedBox(height: 6),
             Text(
               key.isEmpty
-                  ? 'Clé vide: Realtime désactivé.'
+                  ? 'Clé vide : pas d’abonnement Realtime.'
                   : keyOk
-                      ? 'Format OK. Longueur=${key.length}.'
-                      : 'Clé invalide: elle doit commencer par "eyJ".',
+                      ? 'Format JWT plausible (longueur=${key.length}).'
+                      : 'Clé invalide : une clé anon JWT commence en général par « eyJ ».',
               style: TextStyle(
                 fontSize: 11,
                 color: keyOk ? const Color(0xFF16A34A) : const Color(0xFFDC2626),
@@ -726,7 +708,143 @@ class _ConnectionCardState extends State<_ConnectionCard> {
                       child: CircularProgressIndicator(strokeWidth: 2),
                     )
                   : const Icon(Icons.wifi_tethering_outlined),
-              label: Text(_isTestingSupabase ? 'Test...' : 'Tester Supabase'),
+              label: Text(_isTestingSupabase ? 'Test…' : 'Tester Supabase (lecture)'),
+            ),
+            const SizedBox(height: 12),
+            ValueListenableBuilder<SupabaseRelayStatus>(
+              valueListenable: SupabaseRelayService.instance.status,
+              builder: (context, st, _) {
+                final Color borderColor;
+                final Color bg;
+                final IconData icon;
+                switch (st.phase) {
+                  case SupabaseRelayPhase.listening:
+                    borderColor = const Color(0xFFBBF7D0);
+                    bg = const Color(0xFFF0FDF4);
+                    icon = Icons.rss_feed;
+                    break;
+                  case SupabaseRelayPhase.connecting:
+                    borderColor = const Color(0xFFFDE68A);
+                    bg = const Color(0xFFFFFBEB);
+                    icon = Icons.hourglass_top;
+                    break;
+                  case SupabaseRelayPhase.error:
+                    borderColor = const Color(0xFFFECACA);
+                    bg = const Color(0xFFFEF2F2);
+                    icon = Icons.error_outline;
+                    break;
+                  case SupabaseRelayPhase.off:
+                    borderColor = const Color(0xFFE5E7EB);
+                    bg = const Color(0xFFF9FAFB);
+                    icon = Icons.cloud_off_outlined;
+                    break;
+                }
+                final time = st.lastInsertAt;
+                return Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: bg,
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(color: borderColor),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Icon(icon, size: 20, color: const Color(0xFF374151)),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              st.headline,
+                              style: const TextStyle(
+                                fontWeight: FontWeight.w700,
+                                fontSize: 12.5,
+                                color: Color(0xFF111827),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      if (st.detail != null && st.detail!.isNotEmpty) ...[
+                        const SizedBox(height: 6),
+                        Text(
+                          st.detail!,
+                          style: const TextStyle(
+                            fontSize: 11,
+                            color: Color(0xFF4B5563),
+                            height: 1.35,
+                          ),
+                        ),
+                      ],
+                      const SizedBox(height: 8),
+                      Text(
+                        st.insertCount > 0
+                            ? '${st.insertCount} événement(s) reçu(s) par Realtime sur cet appareil'
+                                '${time != null ? ' · dernier : ${_formatDiagTime(time)}' : ''}'
+                            : 'Aucun INSERT reçu encore sur cet appareil — le test ci-dessus ne remplace pas un vrai événement relais.',
+                        style: TextStyle(
+                          fontSize: 11,
+                          color: st.insertCount > 0
+                              ? const Color(0xFF166534)
+                              : const Color(0xFF6B7280),
+                          height: 1.3,
+                        ),
+                      ),
+                    ],
+                  ),
+                );
+              },
+            ),
+            const SizedBox(height: 8),
+            OutlinedButton.icon(
+              onPressed: _refreshingRelay ? null : _refreshRealtimeRelay,
+              icon: _refreshingRelay
+                  ? const SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.sync),
+              label: Text(_refreshingRelay ? 'Relance…' : 'Rafraîchir l’abonnement Realtime'),
+            ),
+            const SizedBox(height: 16),
+            const Divider(height: 1),
+            sectionTitle('2', 'API livreur — boutique par défaut'),
+            const Text(
+              'URL du backend boutique (sans /api) et identifiant sourcePlatform pour le JWT livreur. '
+              'Pour une deuxième boutique avec une autre URL API, utilisez plutôt une source « REST Polling ».',
+              style: TextStyle(fontSize: 11, color: Color(0xFF6B7280), height: 1.35),
+            ),
+            const SizedBox(height: 10),
+            _SettingField(
+              ctrl: _storeOriginCtrl,
+              label: 'URL origine API boutique',
+              icon: Icons.cloud_sync_outlined,
+              hint: 'https://boutique.example.com',
+              keyboardType: TextInputType.url,
+            ),
+            const SizedBox(height: 10),
+            _SettingField(
+              ctrl: _storePlatformCtrl,
+              label: 'SourcePlatform (JWT / commandes API)',
+              icon: Icons.hub_outlined,
+              hint: 'ex. sucre_store — aligné sur le backend',
+            ),
+            const SizedBox(height: 16),
+            const Divider(height: 1),
+            sectionTitle('3', 'Autres boutiques'),
+            const Text(
+              'Chaque boutique supplémentaire = une entrée dans la liste (webhook recommandé). '
+              'L’identifiant « source » du payload doit correspondre à la source enregistrée ici.',
+              style: TextStyle(fontSize: 11, color: Color(0xFF6B7280), height: 1.35),
+            ),
+            const SizedBox(height: 10),
+            OutlinedButton.icon(
+              onPressed: widget.onAddShop,
+              icon: const Icon(Icons.add_business_outlined),
+              label: const Text('Ajouter une boutique (webhook ou REST)'),
             ),
           ],
         ),
@@ -1574,6 +1692,7 @@ class _AddSourceSheet extends StatefulWidget {
 
 class _AddSourceSheetState extends State<_AddSourceSheet> {
   final _nameCtrl = TextEditingController();
+  final _sourceIdCtrl = TextEditingController();
   final _urlCtrl = TextEditingController();
   final _keyCtrl = TextEditingController();
   String _type = 'webhook';
@@ -1582,9 +1701,15 @@ class _AddSourceSheetState extends State<_AddSourceSheet> {
 
   bool get _isWebhook => _type == 'webhook';
 
+  String _defaultSourceIdFromName() => _nameCtrl.text
+      .trim()
+      .toLowerCase()
+      .replaceAll(RegExp(r'\s+'), '_');
+
   @override
   void dispose() {
     _nameCtrl.dispose();
+    _sourceIdCtrl.dispose();
     _urlCtrl.dispose();
     _keyCtrl.dispose();
     super.dispose();
@@ -1594,13 +1719,14 @@ class _AddSourceSheetState extends State<_AddSourceSheet> {
     if (_nameCtrl.text.trim().isEmpty) return;
     setState(() => _isSaving = true);
     try {
+      final sourceIdRaw = _sourceIdCtrl.text.trim();
+      final sourceId = sourceIdRaw.isNotEmpty
+          ? sourceIdRaw
+          : _defaultSourceIdFromName();
       final config = _isWebhook
           ? {
               'webhook_secret': _keyCtrl.text.trim(),
-              'source_identifier': _nameCtrl.text
-                  .trim()
-                  .toLowerCase()
-                  .replaceAll(' ', '_'),
+              'source_identifier': sourceId,
             }
           : {
               'url': _urlCtrl.text.trim(),
@@ -1667,11 +1793,36 @@ class _AddSourceSheetState extends State<_AddSourceSheet> {
             TextFormField(
               controller: _nameCtrl,
               decoration: const InputDecoration(
-                labelText: 'Nom de la plateforme',
+                labelText: 'Nom affiché de la boutique',
                 border: OutlineInputBorder(),
                 prefixIcon: Icon(Icons.label_outline),
               ),
+              onChanged: (_) {
+                if (_isWebhook && _sourceIdCtrl.text.trim().isEmpty) {
+                  setState(() {});
+                }
+              },
             ),
+            if (_isWebhook) ...[
+              const SizedBox(height: 12),
+              TextFormField(
+                controller: _sourceIdCtrl,
+                decoration: InputDecoration(
+                  labelText: 'Identifiant « source » dans les webhooks',
+                  hintText: _defaultSourceIdFromName().isEmpty
+                      ? 'ex. sucre_store'
+                      : 'Défaut si vide : ${_defaultSourceIdFromName()}',
+                  border: const OutlineInputBorder(),
+                  prefixIcon: const Icon(Icons.fingerprint_outlined),
+                ),
+              ),
+              const SizedBox(height: 6),
+              Text(
+                'Doit être identique au champ JSON « source » envoyé par votre backend / relais '
+                '(et à store_source_platform si vous utilisez la même boutique en API).',
+                style: TextStyle(fontSize: 11, color: Colors.grey.shade600, height: 1.35),
+              ),
+            ],
             const SizedBox(height: 12),
             DropdownButtonFormField<String>(
               key: ValueKey(_type),

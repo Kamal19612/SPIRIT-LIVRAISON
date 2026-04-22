@@ -19,13 +19,15 @@ void main() async {
 
   await LocalDatabase.instance.init();
   await NotificationService.instance.init();
-  await SupabaseRelayService.instance.startIfConfigured();
 
   final authProvider = AuthProvider();
   await authProvider.init();
 
   final appConfigProvider = AppConfigProvider();
-   await appConfigProvider.init();
+  await appConfigProvider.init();
+
+  // Après init SQLite / config : (re)démarre Realtime avec supabase_url / anon en base.
+  await SupabaseRelayService.instance.startIfConfigured();
 
   final pollingService = PollingService()..start();
 

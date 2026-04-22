@@ -5,6 +5,7 @@ import '../config/supabase_env.dart';
 import '../database/app_config_dao.dart';
 import '../utils/url_normalize.dart';
 import 'notification_service.dart';
+import 'supabase_relay_status.dart';
 import 'webhook_constants.dart';
 import 'webhook_event_handler.dart';
 
@@ -24,6 +25,14 @@ class SupabaseRelayService {
   SupabaseClient? _client;
   String? _clientUrl;
   String? _clientAnonKey;
+
+  /// Dernière état pour l’UI (diagnostic Intégrations).
+  final ValueNotifier<SupabaseRelayStatus> status =
+      ValueNotifier(SupabaseRelayStatus.initial);
+
+  void _setStatus(SupabaseRelayStatus s) {
+    status.value = s;
+  }
 
   Future<_SupabaseConfig> _resolveConfig({
     String? urlOverride,
@@ -76,6 +85,12 @@ class SupabaseRelayService {
     return _client;
   }
 
+  /// Arrête le canal puis le rouvre (après changement de config ou dépannage).
+  Future<void> restart() async {
+    await stop();
+    await startIfConfigured();
+  }
+
   Future<void> startIfConfigured() async {
     if (_started) return;
 
@@ -85,8 +100,26 @@ class SupabaseRelayService {
         'SupabaseRelayService: Realtime désactivé — renseignez SUPABASE_URL et '
         'SUPABASE_ANON_KEY (--dart-define) ou app_config (supabase_url / supabase_anon_key).',
       );
+      _setStatus(
+        const SupabaseRelayStatus(
+          configured: false,
+          phase: SupabaseRelayPhase.off,
+          headline: 'Realtime : non configuré',
+          detail: 'Renseignez l’URL Supabase et la clé anon (JWT eyJ…) puis enregistrez.',
+        ),
+      );
       return;
     }
+
+    _setStatus(
+      SupabaseRelayStatus(
+        configured: true,
+        phase: SupabaseRelayPhase.connecting,
+        headline: 'Realtime : connexion…',
+        detail: 'Canal public.webhook_events (INSERT) — ${_clientUrl ?? ''}',
+      ),
+    );
+
     _channel = client.channel('public_webhook_events');
     _channel!.onPostgresChanges(
       event: PostgresChangeEvent.insert,
@@ -94,17 +127,105 @@ class SupabaseRelayService {
       table: 'webhook_events',
       callback: _handlePostgresInsert,
     );
-    _channel!.subscribe();
+    _channel!.subscribe(_onSubscribeStatus);
 
     _started = true;
-    debugPrint('SupabaseRelayService: abonné aux INSERT sur webhook_events (${_clientUrl ?? ''})');
+    debugPrint('SupabaseRelayService: subscription demandée → webhook_events (${_clientUrl ?? ''})');
+  }
+
+  void _onSubscribeStatus(RealtimeSubscribeStatus subscribeStatus, Object? error) {
+    switch (subscribeStatus) {
+      case RealtimeSubscribeStatus.subscribed:
+        _setStatus(
+          SupabaseRelayStatus(
+            configured: true,
+            phase: SupabaseRelayPhase.listening,
+            headline: 'Realtime : connecté — en écoute',
+            detail:
+                'Les INSERT sur public.webhook_events sont reçus ici. '
+                'Si une commande ne monte pas, vérifiez que le relais insère bien une ligne '
+                'et que la publication Realtime inclut cette table côté Supabase.',
+            lastInsertAt: status.value.lastInsertAt,
+            insertCount: status.value.insertCount,
+          ),
+        );
+        debugPrint('SupabaseRelayService: RealtimeSubscribeStatus.subscribed');
+        break;
+      case RealtimeSubscribeStatus.channelError:
+        final err = error?.toString() ?? 'erreur inconnue';
+        _started = false;
+        final ch = _channel;
+        _channel = null;
+        if (ch != null) {
+          ch.unsubscribe();
+        }
+        _setStatus(
+          SupabaseRelayStatus(
+            configured: true,
+            phase: SupabaseRelayPhase.error,
+            headline: 'Realtime : erreur d’abonnement',
+            detail: err,
+            lastInsertAt: status.value.lastInsertAt,
+            insertCount: status.value.insertCount,
+          ),
+        );
+        debugPrint('SupabaseRelayService: channelError — $err');
+        break;
+      case RealtimeSubscribeStatus.timedOut:
+        _started = false;
+        final ch2 = _channel;
+        _channel = null;
+        if (ch2 != null) {
+          ch2.unsubscribe();
+        }
+        _setStatus(
+          SupabaseRelayStatus(
+            configured: true,
+            phase: SupabaseRelayPhase.error,
+            headline: 'Realtime : délai dépassé',
+            detail: 'Le serveur n’a pas confirmé l’abonnement à temps (réseau / pare-feu).',
+            lastInsertAt: status.value.lastInsertAt,
+            insertCount: status.value.insertCount,
+          ),
+        );
+        debugPrint('SupabaseRelayService: timedOut');
+        break;
+      case RealtimeSubscribeStatus.closed:
+        _setStatus(
+          SupabaseRelayStatus(
+            configured: true,
+            phase: SupabaseRelayPhase.off,
+            headline: 'Realtime : canal fermé',
+            detail: 'L’abonnement s’est arrêté. Touchez « Rafraîchir l’abonnement » pour relancer.',
+            lastInsertAt: status.value.lastInsertAt,
+            insertCount: status.value.insertCount,
+          ),
+        );
+        _started = false;
+        _channel = null;
+        debugPrint('SupabaseRelayService: closed');
+        break;
+    }
   }
 
   Future<void> stop() async {
-    if (!_started) return;
-    await _channel?.unsubscribe();
+    try {
+      await _channel?.unsubscribe();
+    } catch (_) {}
     _channel = null;
     _started = false;
+    if (_clientUrl != null && _clientUrl!.isNotEmpty) {
+      _setStatus(
+        SupabaseRelayStatus(
+          configured: true,
+          phase: SupabaseRelayPhase.off,
+          headline: 'Realtime : arrêté',
+          detail: 'Abonnement fermé. Ré-enregistrez la config ou touchez « Rafraîchir l’abonnement ».',
+          lastInsertAt: status.value.lastInsertAt,
+          insertCount: status.value.insertCount,
+        ),
+      );
+    }
   }
 
   /// Diagnostic : vérifie que l'app peut lire la table `webhook_events`.
@@ -165,12 +286,26 @@ class SupabaseRelayService {
       final bridge = <String, dynamic>{
         'event': event,
         'version': payloadVersion ?? WebhookConfig.supportedVersion,
-        if (createdAt != null) 'timestamp': createdAt.toString(),
-        if (payloadSource != null) 'source': payloadSource,
-        if (orderMap != null) 'order': orderMap,
       };
+      if (createdAt != null) bridge['timestamp'] = createdAt.toString();
+      if (payloadSource != null) bridge['source'] = payloadSource;
+      if (orderMap != null) bridge['order'] = orderMap;
 
       await WebhookEventHandler.instance.handleWebhookEvent(bridge);
+
+      final prev = status.value;
+      final orderHint =
+          orderMap?['orderNumber']?.toString() ?? rec['order_number']?.toString() ?? '—';
+      _setStatus(
+        SupabaseRelayStatus(
+          configured: prev.configured,
+          phase: SupabaseRelayPhase.listening,
+          headline: 'Realtime : connecté — événements reçus',
+          detail: 'Dernier message : $event · commande #$orderHint',
+          lastInsertAt: DateTime.now(),
+          insertCount: prev.insertCount + 1,
+        ),
+      );
 
       if (rawPayload is Map) {
         final n = rawPayload['notification'];
