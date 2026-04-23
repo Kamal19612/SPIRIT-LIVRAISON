@@ -17,6 +17,7 @@ void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
   await LocalDatabase.instance.init();
+  await LocalDatabase.instance.ensureDefaultLocalAccounts();
   await NotificationService.instance.init();
 
   final authProvider = AuthProvider();

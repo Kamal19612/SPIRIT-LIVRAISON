@@ -4,6 +4,7 @@ import 'package:crypto/crypto.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:path/path.dart';
 import '../config/app_config.dart';
+import '../models/user_model.dart';
 
 class LocalDatabase {
   LocalDatabase._();
@@ -166,8 +167,8 @@ class LocalDatabase {
 
     // ── Seed : compte admin ──────────────────────────────────────────────────
     await db.insert('users', {
-      'username': 'admin',
-      'password': _hash('admin123'),
+      'username': AppConfig.defaultLocalAdminUsername,
+      'password': _hash(AppConfig.defaultLocalAdminPassword),
       'role': 'ADMIN',
       'active': 1,
     });
@@ -263,5 +264,56 @@ class LocalDatabase {
 
   Future<void> clearOrders() async {
     await db.delete('orders');
+  }
+
+  /// Garantit le compte admin (et livreur démo) en base pour les installs / migrations anciennes.
+  Future<void> ensureDefaultLocalAccounts() async {
+    final database = db;
+    Future<void> ensureUser({
+      required String username,
+      required String plainPassword,
+      required String role,
+    }) async {
+      final existing = await database.query(
+        'users',
+        where: 'username = ?',
+        whereArgs: [username],
+        limit: 1,
+      );
+      if (existing.isNotEmpty) return;
+      await database.insert('users', {
+        'username': username,
+        'password': _hash(plainPassword),
+        'role': role,
+        'active': 1,
+      });
+    }
+
+    await ensureUser(
+      username: AppConfig.defaultLocalAdminUsername,
+      plainPassword: AppConfig.defaultLocalAdminPassword,
+      role: 'ADMIN',
+    );
+    await ensureUser(
+      username: 'livreur',
+      plainPassword: 'livreur123',
+      role: 'DELIVERY_AGENT',
+    );
+  }
+
+  Future<UserModel?> authenticateLocalUser(
+    String username,
+    String plainPassword,
+  ) async {
+    final rows = await db.query(
+      'users',
+      where: 'username = ? AND password = ?',
+      whereArgs: [username, _hash(plainPassword)],
+      limit: 1,
+    );
+    if (rows.isEmpty) return null;
+    final row = rows.first;
+    if ((row['active'] as int? ?? 1) != 1) return null;
+    return UserModel.fromSqlite(row);
   }
 }
