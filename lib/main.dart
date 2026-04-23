@@ -12,7 +12,6 @@ import 'screens/login_screen.dart';
 import 'services/location_service.dart';
 import 'services/notification_service.dart';
 import 'services/polling_service.dart';
-import 'services/supabase_relay_service.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -25,9 +24,6 @@ void main() async {
 
   final appConfigProvider = AppConfigProvider();
   await appConfigProvider.init();
-
-  // Après init SQLite / config : (re)démarre Realtime avec supabase_url / anon en base.
-  await SupabaseRelayService.instance.startIfConfigured();
 
   final pollingService = PollingService()..start();
 

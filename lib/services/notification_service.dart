@@ -1,7 +1,5 @@
-import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
-import 'webhook_event_handler.dart';
 
 // ── Callback background (top-level — isolate séparé) ────────────────────────
 // Appelé quand l'utilisateur tape sur une notification pendant que l'app est
@@ -77,19 +75,7 @@ class NotificationService {
   // ── Callback foreground ──────────────────────────────────────────────────
 
   void _onNotificationTap(NotificationResponse response) {
-    final raw = response.payload;
-    if (raw == null || raw.isEmpty) return;
-
-    try {
-      // Le payload peut être soit un événement webhook complet (JSON),
-      // soit une simple string (cas showNewOrderNotification sans payload).
-      final decoded = jsonDecode(raw);
-      if (decoded is Map<String, dynamic> && decoded.containsKey('event')) {
-        WebhookEventHandler.instance.handleWebhookEvent(decoded);
-      }
-    } catch (_) {
-      // Payload non-JSON (notification locale simple) — on ignore
-    }
+    // Intentionnel: pas de deep-linking pour le moment.
   }
 
   // ── Affichage d'une notification locale ──────────────────────────────────
@@ -104,19 +90,10 @@ class NotificationService {
   Future<void> showNewOrderNotification(
     String orderNumber, {
     Map<String, dynamic>? webhookPayload,
-    bool processWebhookPayload = true,
   }) async {
     if (!_initialized) return;
     try {
-      if (processWebhookPayload &&
-          webhookPayload != null &&
-          webhookPayload.containsKey('event')) {
-        await WebhookEventHandler.instance.handleWebhookEvent(webhookPayload);
-      }
-
-      final payloadStr = webhookPayload != null
-          ? jsonEncode(webhookPayload)
-          : null;
+      final payloadStr = null;
 
       final androidDetails = AndroidNotificationDetails(
         'delivery_orders',
@@ -147,19 +124,10 @@ class NotificationService {
     required String title,
     required String body,
     Map<String, dynamic>? webhookPayload,
-    bool processWebhookPayload = true,
   }) async {
     if (!_initialized) return;
     try {
-      if (processWebhookPayload &&
-          webhookPayload != null &&
-          webhookPayload.containsKey('event')) {
-        await WebhookEventHandler.instance.handleWebhookEvent(webhookPayload);
-      }
-
-      final payloadStr = webhookPayload != null
-          ? jsonEncode(webhookPayload)
-          : null;
+      const payloadStr = null;
 
       const androidDetails = AndroidNotificationDetails(
         'delivery_orders',

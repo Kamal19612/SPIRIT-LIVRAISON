@@ -9,8 +9,7 @@ import '../../providers/app_config_provider.dart';
 import '../../services/app_config_service.dart';
 import '../../services/polling_service.dart';
 import '../../services/external_source_secrets.dart';
-import '../../services/supabase_relay_service.dart';
-import '../../services/supabase_relay_status.dart';
+import '../../services/supabase_app_client.dart';
 import '../../utils/url_normalize.dart';
 
 class AdminSettingsScreen extends StatelessWidget {
@@ -380,7 +379,7 @@ class _IntegrationsTab extends StatelessWidget {
                 const SizedBox(height: 8),
                 const Text(
                   'Les commandes sont créées automatiquement à partir des sources externes. '
-                  'Le mode recommandé est le webhook (votre boutique ou serveur relais envoie chaque commande). '
+                  'Le mode recommandé est le webhook (votre boutique envoie chaque commande). '
                   'Le mode REST sert à interroger périodiquement une API si vous ne pouvez pas utiliser de webhook.',
                   style: TextStyle(
                     fontSize: 12,
@@ -478,14 +477,7 @@ class _ConnectionCardState extends State<_ConnectionCard> {
   bool _loaded = false;
   bool _isSaving = false;
   bool _isTestingSupabase = false;
-  bool _refreshingRelay = false;
-
-  String _formatDiagTime(DateTime t) {
-    final l = t.toLocal();
-    final mm = l.minute.toString().padLeft(2, '0');
-    final hh = l.hour.toString().padLeft(2, '0');
-    return '${l.day.toString().padLeft(2, '0')}/${l.month.toString().padLeft(2, '0')} $hh:$mm';
-  }
+  bool _isTestingDeliveryRpc = false;
 
   @override
   void didChangeDependencies() {
@@ -529,12 +521,10 @@ class _ConnectionCardState extends State<_ConnectionCard> {
         'supabase_anon_key': _supabaseAnonCtrl.text.trim(),
       });
 
-      await SupabaseRelayService.instance.restart();
-
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Configuration sauvegardée — abonnement Realtime relancé.'),
+          content: Text('Configuration sauvegardée.'),
           behavior: SnackBarBehavior.floating,
         ),
       );
@@ -549,10 +539,10 @@ class _ConnectionCardState extends State<_ConnectionCard> {
     try {
       final url = normalizeHttpOrigin(_supabaseUrlCtrl.text) ?? '';
       final anonKey = _supabaseAnonCtrl.text.trim();
-      final msg = await SupabaseRelayService.instance.testConnection(
-        urlOverride: url,
-        anonKeyOverride: anonKey,
-      );
+      // Instancie juste le client (diagnostic config).
+      final msg = (url.isNotEmpty && anonKey.isNotEmpty)
+          ? 'OK: configuration Supabase détectée.'
+          : 'Supabase non configuré (URL / ANON KEY manquantes).';
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(msg), behavior: SnackBarBehavior.floating),
@@ -562,20 +552,22 @@ class _ConnectionCardState extends State<_ConnectionCard> {
     }
   }
 
-  Future<void> _refreshRealtimeRelay() async {
-    if (_refreshingRelay) return;
-    setState(() => _refreshingRelay = true);
+  Future<void> _testDeliveryRpc() async {
+    if (_isTestingDeliveryRpc) return;
+    setState(() => _isTestingDeliveryRpc = true);
     try {
-      await SupabaseRelayService.instance.restart();
+      final client = await SupabaseAppClient.instance.client();
+      final rows = await client.rpc('delivery_available_orders');
+      final count = rows is List ? rows.length : 0;
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Abonnement Realtime relancé.'),
+        SnackBar(
+          content: Text('RPC OK: $count commande(s) disponibles (masquées).'),
           behavior: SnackBarBehavior.floating,
         ),
       );
     } finally {
-      if (mounted) setState(() => _refreshingRelay = false);
+      if (mounted) setState(() => _isTestingDeliveryRpc = false);
     }
   }
 
@@ -663,9 +655,8 @@ class _ConnectionCardState extends State<_ConnectionCard> {
             const Divider(height: 1),
             sectionTitle('1', 'Temps réel — Supabase'),
             const Text(
-              'Le relais insère chaque événement dans la table webhook_events. '
-              'Le test « OK » vérifie surtout la lecture SQL ; la réception instantanée exige aussi '
-              'Realtime activé pour cette table dans le tableau Supabase (publication + REPLICA IDENTITY).',
+              'Les livreurs se connectent via Supabase Auth et lisent les commandes via des RPC '
+              '(delivery_available_orders / delivery_my_orders), avec les mêmes règles que la page web Livraison.',
               style: TextStyle(fontSize: 11, color: Color(0xFF6B7280), height: 1.35),
             ),
             const SizedBox(height: 10),
@@ -709,106 +700,19 @@ class _ConnectionCardState extends State<_ConnectionCard> {
                       child: CircularProgressIndicator(strokeWidth: 2),
                     )
                   : const Icon(Icons.wifi_tethering_outlined),
-              label: Text(_isTestingSupabase ? 'Test…' : 'Tester Supabase (lecture)'),
-            ),
-            const SizedBox(height: 12),
-            ValueListenableBuilder<SupabaseRelayStatus>(
-              valueListenable: SupabaseRelayService.instance.status,
-              builder: (context, st, _) {
-                final Color borderColor;
-                final Color bg;
-                final IconData icon;
-                switch (st.phase) {
-                  case SupabaseRelayPhase.listening:
-                    borderColor = const Color(0xFFBBF7D0);
-                    bg = const Color(0xFFF0FDF4);
-                    icon = Icons.rss_feed;
-                    break;
-                  case SupabaseRelayPhase.connecting:
-                    borderColor = const Color(0xFFFDE68A);
-                    bg = const Color(0xFFFFFBEB);
-                    icon = Icons.hourglass_top;
-                    break;
-                  case SupabaseRelayPhase.error:
-                    borderColor = const Color(0xFFFECACA);
-                    bg = const Color(0xFFFEF2F2);
-                    icon = Icons.error_outline;
-                    break;
-                  case SupabaseRelayPhase.off:
-                    borderColor = const Color(0xFFE5E7EB);
-                    bg = const Color(0xFFF9FAFB);
-                    icon = Icons.cloud_off_outlined;
-                    break;
-                }
-                final time = st.lastInsertAt;
-                return Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: bg,
-                    borderRadius: BorderRadius.circular(10),
-                    border: Border.all(color: borderColor),
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        children: [
-                          Icon(icon, size: 20, color: const Color(0xFF374151)),
-                          const SizedBox(width: 8),
-                          Expanded(
-                            child: Text(
-                              st.headline,
-                              style: const TextStyle(
-                                fontWeight: FontWeight.w700,
-                                fontSize: 12.5,
-                                color: Color(0xFF111827),
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                      if (st.detail != null && st.detail!.isNotEmpty) ...[
-                        const SizedBox(height: 6),
-                        Text(
-                          st.detail!,
-                          style: const TextStyle(
-                            fontSize: 11,
-                            color: Color(0xFF4B5563),
-                            height: 1.35,
-                          ),
-                        ),
-                      ],
-                      const SizedBox(height: 8),
-                      Text(
-                        st.insertCount > 0
-                            ? '${st.insertCount} événement(s) reçu(s) par Realtime sur cet appareil'
-                                '${time != null ? ' · dernier : ${_formatDiagTime(time)}' : ''}'
-                            : 'Aucun INSERT reçu encore sur cet appareil — le test ci-dessus ne remplace pas un vrai événement relais.',
-                        style: TextStyle(
-                          fontSize: 11,
-                          color: st.insertCount > 0
-                              ? const Color(0xFF166534)
-                              : const Color(0xFF6B7280),
-                          height: 1.3,
-                        ),
-                      ),
-                    ],
-                  ),
-                );
-              },
+              label: Text(_isTestingSupabase ? 'Test…' : 'Vérifier configuration Supabase'),
             ),
             const SizedBox(height: 8),
             OutlinedButton.icon(
-              onPressed: _refreshingRelay ? null : _refreshRealtimeRelay,
-              icon: _refreshingRelay
+              onPressed: _isTestingDeliveryRpc ? null : _testDeliveryRpc,
+              icon: _isTestingDeliveryRpc
                   ? const SizedBox(
                       width: 16,
                       height: 16,
                       child: CircularProgressIndicator(strokeWidth: 2),
                     )
-                  : const Icon(Icons.sync),
-              label: Text(_refreshingRelay ? 'Relance…' : 'Rafraîchir l’abonnement Realtime'),
+                  : const Icon(Icons.playlist_add_check_circle_outlined),
+              label: Text(_isTestingDeliveryRpc ? 'Test…' : 'Tester RPC livraison'),
             ),
             const SizedBox(height: 16),
             const Divider(height: 1),
@@ -1187,7 +1091,7 @@ class _WebhookConfigSheetState extends State<_WebhookConfigSheet> {
                 obscureText: !_secretVisible,
                 decoration: InputDecoration(
                   labelText: 'Secret partagé',
-                  hintText: 'clé secrète du serveur relais',
+                  hintText: 'clé secrète partagée (HMAC)',
                   border: const OutlineInputBorder(),
                   prefixIcon: const Icon(Icons.lock_outline),
                   isDense: true,
@@ -1199,7 +1103,7 @@ class _WebhookConfigSheetState extends State<_WebhookConfigSheet> {
                   ),
                   helperText:
                       'Identique au secret boutique (Sucre Store : app_settings '
-                      'webhook_secret ou WEBHOOK_SECRET) et au relais qui vérifie '
+                      'webhook_secret) et à votre endpoint qui vérifie '
                       'X-Webhook-Signature',
                   helperMaxLines: 3,
                 ),
@@ -1218,7 +1122,7 @@ class _WebhookConfigSheetState extends State<_WebhookConfigSheet> {
                   prefixIcon: Icon(Icons.tag),
                   isDense: true,
                   helperText:
-                      'Valeur du champ "source" dans les payloads envoyés par le relais',
+                      'Valeur du champ "source" dans les payloads envoyés par votre boutique',
                   helperMaxLines: 2,
                 ),
               ),
@@ -1245,10 +1149,10 @@ class _WebhookConfigSheetState extends State<_WebhookConfigSheet> {
                   ]),
                   SizedBox(height: 6),
                   Text(
-                    '1. Votre backend envoie un POST webhook au serveur relais\n'
-                    '2. Le relais vérifie la signature HMAC avec le secret\n'
-                    '3. Le relais envoie le payload à l\'app via push notification\n'
-                    '4. L\'app traite l\'événement en temps réel',
+                    '1. Votre boutique envoie un POST webhook à votre backend / Edge Function\n'
+                    '2. L’endpoint vérifie la signature HMAC avec le secret\n'
+                    '3. Le backend insère/met à jour les commandes en base\n'
+                    '4. L’app mobile lit les commandes en direct via Supabase (Auth + RPC)',
                     style: TextStyle(fontSize: 11, color: Color(0xFF92400E), height: 1.5),
                   ),
                 ],
@@ -1372,6 +1276,7 @@ class _RestPollingConfigSheetState extends State<_RestPollingConfigSheet> {
         );
       }
 
+      if (!mounted) return;
       await context.read<AdminProvider>().updateSourceConfig(widget.source.id!, {
         'url':           _urlCtrl.text.trim(),
         'auth_type':     _authType,
@@ -1819,7 +1724,7 @@ class _AddSourceSheetState extends State<_AddSourceSheet> {
               ),
               const SizedBox(height: 6),
               Text(
-                'Doit être identique au champ JSON « source » envoyé par votre backend / relais '
+                'Doit être identique au champ JSON « source » envoyé par votre backend '
                 '(et à store_source_platform si vous utilisez la même boutique en API).',
                 style: TextStyle(fontSize: 11, color: Colors.grey.shade600, height: 1.35),
               ),
@@ -1907,10 +1812,9 @@ class _AddSourceSheetState extends State<_AddSourceSheet> {
                   border: Border.all(color: const Color(0xFFBBF7D0)),
                 ),
                 child: const Text(
-                  'Le webhook est passif : votre serveur relais envoie les '
-                  'événements à l\'app via notification. Le secret HMAC doit être '
-                  'exactement le même que celui utilisé par la boutique pour signer '
-                  'le corps JSON (et par le relais pour vérifier X-Webhook-Signature).',
+                  'Le webhook déclenche l’import / la mise à jour des commandes. '
+                  'Le secret HMAC doit être exactement le même que celui utilisé par la boutique '
+                  'pour signer le corps JSON (et par votre endpoint pour vérifier X-Webhook-Signature).',
                   style: TextStyle(fontSize: 11, color: Color(0xFF166534), height: 1.4),
                 ),
               ),

@@ -4,7 +4,6 @@ import '../../providers/admin_provider.dart';
 import '../../providers/app_config_provider.dart';
 import '../../providers/auth_provider.dart';
 import '../../services/polling_service.dart';
-import '../../services/webhook_event_handler.dart';
 import 'admin_dashboard_screen.dart';
 import 'admin_drivers_screen.dart';
 import 'admin_orders_screen.dart';
@@ -34,13 +33,11 @@ class _AdminShellState extends State<AdminShell> {
       context.read<AdminProvider>().loadAll();
       context.read<PollingService>().addListener(_onPollUpdate);
     });
-    WebhookEventHandler.instance.addListener(_onWebhookEvent);
   }
 
   @override
   void dispose() {
     context.read<PollingService>().removeListener(_onPollUpdate);
-    WebhookEventHandler.instance.removeListener(_onWebhookEvent);
     super.dispose();
   }
 
@@ -52,12 +49,6 @@ class _AdminShellState extends State<AdminShell> {
     if (anyDone && mounted) {
       context.read<AdminProvider>().loadOrders();
     }
-  }
-
-  // Recharge les commandes admin à chaque événement webhook temps réel.
-  void _onWebhookEvent() {
-    if (!mounted) return;
-    context.read<AdminProvider>().loadOrders();
   }
 
   Future<void> _handleLogout() async {

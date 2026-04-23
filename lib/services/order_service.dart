@@ -1,49 +1,37 @@
-import '../database/orders_dao.dart';
 import '../models/order_model.dart';
-import 'auth_service.dart';
-import 'store_api_bridge.dart';
+import 'supabase_app_client.dart';
 
 class OrderService {
   OrderService._();
   static final OrderService instance = OrderService._();
 
-  OrdersDao get _dao => OrdersDao.instance;
-
   Future<List<Order>> fetchAvailableOrders() async =>
-      _dao.getAvailableOrders();
+      _fetchFromRpc('delivery_available_orders');
 
   Future<List<Order>> fetchMyOrders() async {
-    final userId = await AuthService.instance.getCurrentUserId();
-    return _dao.getMyOrders(userId ?? 0);
+    return _fetchFromRpc('delivery_my_orders');
   }
 
   Future<void> claimOrder(int orderId) async {
-    final userId = await AuthService.instance.getCurrentUserId();
-    final order = await _dao.getOrderById(orderId);
-    if (order != null && await StoreApiBridge.instance.shouldSyncOrder(order)) {
-      await StoreApiBridge.instance.claimDeliveryOrder(order.id);
-    }
-    await _dao.claimOrderLocal(orderId, userId);
+    final client = await SupabaseAppClient.instance.client();
+    await client.rpc('delivery_claim_order', params: {'p_order_id': orderId});
   }
 
   Future<void> completeDelivery(int orderId, String code) async {
-    final order = await _dao.getOrderById(orderId);
+    final client = await SupabaseAppClient.instance.client();
+    await client.rpc(
+      'delivery_complete_order',
+      params: {'p_order_id': orderId, 'p_code': code.trim()},
+    );
+  }
 
-    // Vérifie le code de confirmation si défini
-    if (order != null &&
-        order.confirmationCode != null &&
-        order.confirmationCode!.isNotEmpty) {
-      final a = order.confirmationCode!.trim();
-      final b = code.trim();
-      if (a.toLowerCase() != b.toLowerCase()) {
-        throw Exception('Code de validation incorrect');
-      }
-    }
-
-    if (order != null && await StoreApiBridge.instance.shouldSyncOrder(order)) {
-      await StoreApiBridge.instance.completeDeliveryOnStore(order.id, code);
-    }
-
-    await _dao.completeOrderLocal(orderId);
+  Future<List<Order>> _fetchFromRpc(String fn) async {
+    final client = await SupabaseAppClient.instance.client();
+    final res = await client.rpc(fn);
+    if (res is! List) return [];
+    return res
+        .whereType<Map>()
+        .map((e) => Order.fromJson(Map<String, dynamic>.from(e)))
+        .toList();
   }
 }

@@ -1,82 +1,96 @@
 import 'dart:convert';
-import 'package:crypto/crypto.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
-import '../database/local_database.dart';
 import '../models/user_model.dart';
-import 'store_api_bridge.dart';
+import 'supabase_app_client.dart';
 
 class AuthService {
   AuthService._();
   static final AuthService instance = AuthService._();
 
   final _storage = const FlutterSecureStorage();
+  static const _sessionKey = 'supabase_session_json';
 
-  String _hash(String password) =>
-      sha256.convert(utf8.encode(password)).toString();
-
-  Future<UserModel> login(String username, String password) async {
-    final rows = await LocalDatabase.instance.db.query(
-      'users',
-      where: 'username = ? AND active = 1',
-      whereArgs: [username],
+  Future<UserModel> login(String email, String password) async {
+    final client = await SupabaseAppClient.instance.client();
+    final res = await client.auth.signInWithPassword(
+      email: email.trim(),
+      password: password,
     );
 
-    if (rows.isEmpty) throw Exception('Identifiants incorrects');
-
-    final row  = rows.first;
-    final hash = row['password'] as String;
-
-    if (_hash(password) != hash) {
-      throw Exception('Identifiants incorrects');
+    final session = res.session;
+    if (session == null) {
+      throw Exception('Connexion Supabase impossible (session absente).');
     }
 
-    final role = row['role'] as String;
-    if (!['DELIVERY_AGENT', 'ADMIN', 'SUPER_ADMIN'].contains(role)) {
-      throw Exception('Accès réservé aux livreurs');
+    // Persister la session pour restauration au prochain démarrage.
+    await _storage.write(key: _sessionKey, value: jsonEncode(session.toJson()));
+
+    // Lire le mapping delivery_agents (auth -> store user id + rôle)
+    final resRows = await client
+        .from('delivery_agents')
+        .select('store_user_id, role, is_active')
+        .eq('auth_user_id', session.user.id)
+        .limit(1);
+
+    final agentRows = (resRows as List).cast<dynamic>();
+    if (agentRows.isEmpty) {
+      await client.auth.signOut();
+      throw Exception(
+        'Compte non autorisé: ce user Supabase n’est pas enregistré dans delivery_agents.',
+      );
     }
 
-    final user = UserModel(
-      id:       row['id'] as int,
-      username: row['username'] as String,
-      role:     role,
-    );
-
-    await _storage.write(key: 'user_id',  value: user.id.toString());
-    await _storage.write(key: 'username', value: user.username);
-    await _storage.write(key: 'role',     value: user.role);
-
-    if (role == 'DELIVERY_AGENT') {
-      try {
-        await StoreApiBridge.instance.loginWithCredentials(username, password);
-      } catch (_) {
-        await StoreApiBridge.instance.clearSession();
-      }
-    } else {
-      await StoreApiBridge.instance.clearSession();
+    final row = Map<String, dynamic>.from(agentRows.first as Map);
+    final active = row['is_active'] == true;
+    if (!active) {
+      await client.auth.signOut();
+      throw Exception('Compte désactivé.');
     }
 
-    return user;
+    final storeUserId = (row['store_user_id'] as num).toInt();
+    final role = (row['role']?.toString() ?? 'DELIVERY_AGENT').toUpperCase();
+
+    return UserModel(id: storeUserId, username: email.trim(), role: role);
   }
 
   Future<void> logout() async {
-    await StoreApiBridge.instance.clearSession();
-    await _storage.deleteAll();
+    try {
+      final client = await SupabaseAppClient.instance.client();
+      await client.auth.signOut();
+    } catch (_) {}
+    await _storage.delete(key: _sessionKey);
   }
 
   Future<UserModel?> tryRestoreSession() async {
-    final idStr = await _storage.read(key: 'user_id');
-    if (idStr == null || idStr.isEmpty) return null;
+    final raw = await _storage.read(key: _sessionKey);
+    if (raw == null || raw.isEmpty) return null;
+    try {
+      final client = await SupabaseAppClient.instance.client();
+      final res = await client.auth.recoverSession(raw);
+      final session = res.session;
+      if (session == null) return null;
 
-    final username = await _storage.read(key: 'username') ?? '';
-    final role     = await _storage.read(key: 'role')     ?? '';
-    final id       = int.tryParse(idStr);
-    if (id == null) return null;
+      final resRows = await client
+          .from('delivery_agents')
+          .select('store_user_id, role, is_active')
+          .eq('auth_user_id', session.user.id)
+          .limit(1);
 
-    return UserModel(id: id, username: username, role: role);
+      final agentRows = (resRows as List).cast<dynamic>();
+      if (agentRows.isEmpty) return null;
+      final row = Map<String, dynamic>.from(agentRows.first as Map);
+      if (row['is_active'] != true) return null;
+
+      final storeUserId = (row['store_user_id'] as num).toInt();
+      final role = (row['role']?.toString() ?? 'DELIVERY_AGENT').toUpperCase();
+      return UserModel(id: storeUserId, username: session.user.email ?? '', role: role);
+    } catch (_) {
+      return null;
+    }
   }
 
   Future<int?> getCurrentUserId() async {
-    final idStr = await _storage.read(key: 'user_id');
-    return idStr != null ? int.tryParse(idStr) : null;
+    final u = await tryRestoreSession();
+    return u?.id;
   }
 }

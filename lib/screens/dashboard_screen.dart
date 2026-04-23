@@ -3,8 +3,6 @@ import 'package:provider/provider.dart';
 import '../providers/auth_provider.dart';
 import '../providers/orders_provider.dart';
 import '../services/location_service.dart';
-import '../services/webhook_constants.dart';
-import '../services/webhook_event_handler.dart';
 import '../widgets/order_card.dart';
 
 class DashboardScreen extends StatefulWidget {
@@ -28,7 +26,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) => _init());
-    WebhookEventHandler.instance.addListener(_onWebhookEvent);
   }
 
   Future<void> _init() async {
@@ -51,28 +48,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
     }
   }
 
-  // Réagit aux événements webhook en temps réel :
-  // commande confirmée/annulée → recharger les disponibles
-  // commande prise/en livraison/livrée → recharger mes courses
-  void _onWebhookEvent() {
-    if (!mounted) return;
-    final event = WebhookEventHandler.instance.lastEvent;
-    switch (event) {
-      case WebhookEvents.orderConfirmed:
-      case WebhookEvents.orderClaimed:
-      case WebhookEvents.orderCancelled:
-        context.read<OrdersProvider>().loadOrders('available');
-        break;
-      case WebhookEvents.orderInDelivery:
-      case WebhookEvents.orderDelivered:
-        context.read<OrdersProvider>().loadOrders('my-orders');
-        break;
-    }
-  }
-
   @override
   void dispose() {
-    WebhookEventHandler.instance.removeListener(_onWebhookEvent);
     _locationService?.removeListener(_onLocationChanged);
     _locationService?.stopTracking();
     super.dispose();

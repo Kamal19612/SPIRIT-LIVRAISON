@@ -103,11 +103,11 @@ class _LoginScreenState extends State<LoginScreen> {
                           _buildErrorBlock(errorMsg),
                           const SizedBox(height: 16),
                         ],
-                        _buildLabel("Nom d'utilisateur"),
+                        _buildLabel('Email'),
                         const SizedBox(height: 6),
                         _buildTextField(
                           controller: _usernameController,
-                          hint: 'Votre identifiant',
+                          hint: 'ex. livreur@sucrestore.com',
                           icon: Icons.person_outline,
                         ),
                         const SizedBox(height: 16),
