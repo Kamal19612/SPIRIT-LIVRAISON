@@ -17,6 +17,7 @@ class StoreApiBridge {
   static const _jwtKey = 'store_api_jwt';
 
   final _storage = const FlutterSecureStorage();
+  // Exposé pour réutilisation (OrderService fetch list + autres services).
   final Dio _dio = Dio(
     BaseOptions(
       connectTimeout: const Duration(seconds: 12),
@@ -24,6 +25,8 @@ class StoreApiBridge {
       validateStatus: (s) => s != null && s < 500,
     ),
   );
+
+  Dio get dio => _dio;
 
   /// Origine API sans slash final (ex. `https://boutique.com:8081`).
   Future<String?> get apiOrigin async {
@@ -140,6 +143,22 @@ class StoreApiBridge {
       options: Options(headers: _authHeaders(token)),
     );
     _ensure2xx(res, 'Validation livraison');
+  }
+
+  Future<void> registerFcmToken({
+    required String token,
+    required String platform,
+  }) async {
+    final origin = await apiOrigin;
+    final jwtToken = await jwt;
+    if (origin == null || jwtToken == null) return;
+    final url = '$origin/api/webhooks/livraison/inscription';
+    final res = await _dio.post<dynamic>(
+      url,
+      data: {'token': token, 'platform': platform},
+      options: Options(headers: _authHeaders(jwtToken)),
+    );
+    _ensure2xx(res, 'Enregistrement FCM');
   }
 
   Map<String, String> _authHeaders(String token) => {

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../models/order_model.dart';
+import '../services/public_settings_service.dart';
 
 class OrderCard extends StatefulWidget {
   final Order order;
@@ -27,11 +28,21 @@ class _OrderCardState extends State<OrderCard> {
   String? _codeError;
   String  _timeLeft     = '';
   _Urgency _urgency     = _Urgency.normal;
+  Map<String, String> _settings = const {};
 
   @override
   void initState() {
     super.initState();
     _recomputeTimer();
+    _loadSettings();
+  }
+
+  Future<void> _loadSettings() async {
+    try {
+      final s = await PublicSettingsService.instance.fetch();
+      if (!mounted) return;
+      setState(() => _settings = s);
+    } catch (_) {}
   }
 
   static const Color _secondary  = Color(0xFF242021);
@@ -228,6 +239,8 @@ class _OrderCardState extends State<OrderCard> {
             padding: const EdgeInsets.all(16),
             child: Column(
               children: [
+                _buildStoreInfo(primary),
+                const SizedBox(height: 12),
                 _buildCustomerInfo(),
                 if (widget.order.customerNotes?.isNotEmpty == true) ...[
                   const SizedBox(height: 8),
@@ -241,6 +254,79 @@ class _OrderCardState extends State<OrderCard> {
           ),
         ],
       ),
+    );
+  }
+
+  Widget _buildStoreInfo(Color primary) {
+    final storeName = (_settings['store_name'] ?? 'SUCRE STORE').trim();
+    final address = (_settings['contact_address'] ?? _settings['store_location'] ?? '').trim();
+    final whatsapp = (_settings['whatsapp_number'] ?? '').trim();
+
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Container(
+          width: 40,
+          height: 40,
+          decoration: BoxDecoration(
+            color: const Color(0xFFFFFBEB),
+            borderRadius: BorderRadius.circular(20),
+          ),
+          child: const Icon(Icons.store_outlined, size: 20, color: Color(0xFFD97706)),
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'BOUTIQUE',
+                style: TextStyle(
+                  fontSize: 10,
+                  fontWeight: FontWeight.w800,
+                  color: Color(0xFFD97706),
+                  letterSpacing: 1.2,
+                ),
+              ),
+              const SizedBox(height: 2),
+              Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      storeName,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w800, color: _gray900),
+                    ),
+                  ),
+                  if (whatsapp.isNotEmpty) ...[
+                    const SizedBox(width: 8),
+                    GestureDetector(
+                      onTap: () => _launchExternal(Uri(scheme: 'tel', path: whatsapp)),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFFFFBEB),
+                          borderRadius: BorderRadius.circular(999),
+                          border: Border.all(color: const Color(0xFFFDE68A)),
+                        ),
+                        child: Text(
+                          '📞 $whatsapp',
+                          style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w700, color: Color(0xFFD97706)),
+                        ),
+                      ),
+                    ),
+                  ]
+                ],
+              ),
+              if (address.isNotEmpty) ...[
+                const SizedBox(height: 2),
+                Text(address, style: const TextStyle(fontSize: 12, color: _gray500, fontWeight: FontWeight.w600)),
+              ]
+            ],
+          ),
+        ),
+      ],
     );
   }
 

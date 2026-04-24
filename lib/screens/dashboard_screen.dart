@@ -4,6 +4,7 @@ import '../providers/auth_provider.dart';
 import '../providers/orders_provider.dart';
 import '../services/location_service.dart';
 import '../widgets/order_card.dart';
+import '../services/fcm_service.dart';
 
 class DashboardScreen extends StatefulWidget {
   const DashboardScreen({super.key});
@@ -34,6 +35,13 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
     final auth = context.read<AuthProvider>();
     if (auth.user != null) {
+      // Écoute des événements FCM (refresh commandes en foreground).
+      FcmService.instance.listenForeground(onEvent: (type) {
+        if (!mounted) return;
+        if (type == 'new_delivery' || type == 'order_status') {
+          context.read<OrdersProvider>().refresh();
+        }
+      });
       _locationService = context.read<LocationService>();
       await _locationService!.startTracking(auth.user!.id);
       _locationService!.addListener(_onLocationChanged);

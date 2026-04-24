@@ -9,7 +9,6 @@ import '../../providers/app_config_provider.dart';
 import '../../services/app_config_service.dart';
 import '../../services/polling_service.dart';
 import '../../services/external_source_secrets.dart';
-import '../../services/supabase_app_client.dart';
 import '../../utils/url_normalize.dart';
 
 class AdminSettingsScreen extends StatelessWidget {
@@ -471,13 +470,9 @@ class _ConnectionCard extends StatefulWidget {
 class _ConnectionCardState extends State<_ConnectionCard> {
   final _storeOriginCtrl = TextEditingController();
   final _storePlatformCtrl = TextEditingController();
-  final _supabaseUrlCtrl = TextEditingController();
-  final _supabaseAnonCtrl = TextEditingController();
 
   bool _loaded = false;
   bool _isSaving = false;
-  bool _isTestingSupabase = false;
-  bool _isTestingDeliveryRpc = false;
 
   @override
   void didChangeDependencies() {
@@ -491,20 +486,12 @@ class _ConnectionCardState extends State<_ConnectionCard> {
     AppConfigDao.instance.getValue('store_source_platform').then((v) {
       if (mounted) setState(() => _storePlatformCtrl.text = v ?? '');
     });
-    AppConfigDao.instance.getValue('supabase_url').then((v) {
-      if (mounted) setState(() => _supabaseUrlCtrl.text = v ?? '');
-    });
-    AppConfigDao.instance.getValue('supabase_anon_key').then((v) {
-      if (mounted) setState(() => _supabaseAnonCtrl.text = v ?? '');
-    });
   }
 
   @override
   void dispose() {
     _storeOriginCtrl.dispose();
     _storePlatformCtrl.dispose();
-    _supabaseUrlCtrl.dispose();
-    _supabaseAnonCtrl.dispose();
     super.dispose();
   }
 
@@ -513,12 +500,9 @@ class _ConnectionCardState extends State<_ConnectionCard> {
     setState(() => _isSaving = true);
     try {
       final storeOrigin = normalizeHttpOrigin(_storeOriginCtrl.text) ?? '';
-      final supabaseUrl = normalizeHttpOrigin(_supabaseUrlCtrl.text) ?? '';
       await AppConfigService.instance.save({
         'store_api_origin': storeOrigin,
         'store_source_platform': _storePlatformCtrl.text.trim(),
-        'supabase_url': supabaseUrl,
-        'supabase_anon_key': _supabaseAnonCtrl.text.trim(),
       });
 
       if (!mounted) return;
@@ -533,49 +517,9 @@ class _ConnectionCardState extends State<_ConnectionCard> {
     }
   }
 
-  Future<void> _testSupabase() async {
-    if (_isTestingSupabase) return;
-    setState(() => _isTestingSupabase = true);
-    try {
-      final url = normalizeHttpOrigin(_supabaseUrlCtrl.text) ?? '';
-      final anonKey = _supabaseAnonCtrl.text.trim();
-      // Instancie juste le client (diagnostic config).
-      final msg = (url.isNotEmpty && anonKey.isNotEmpty)
-          ? 'OK: configuration Supabase détectée.'
-          : 'Supabase non configuré (URL / ANON KEY manquantes).';
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(msg), behavior: SnackBarBehavior.floating),
-      );
-    } finally {
-      if (mounted) setState(() => _isTestingSupabase = false);
-    }
-  }
-
-  Future<void> _testDeliveryRpc() async {
-    if (_isTestingDeliveryRpc) return;
-    setState(() => _isTestingDeliveryRpc = true);
-    try {
-      final client = await SupabaseAppClient.instance.client();
-      final rows = await client.rpc('delivery_available_orders');
-      final count = rows is List ? rows.length : 0;
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('RPC OK: $count commande(s) disponibles (masquées).'),
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
-    } finally {
-      if (mounted) setState(() => _isTestingDeliveryRpc = false);
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
     final primary = Theme.of(context).colorScheme.primary;
-    final key = _supabaseAnonCtrl.text.trim();
-    final keyOk = key.isEmpty || key.startsWith('eyJ');
 
     Widget sectionTitle(String n, String title) => Padding(
           padding: const EdgeInsets.only(top: 4, bottom: 8),
@@ -653,67 +597,13 @@ class _ConnectionCardState extends State<_ConnectionCard> {
             ),
             const SizedBox(height: 14),
             const Divider(height: 1),
-            sectionTitle('1', 'Temps réel — Supabase'),
+            sectionTitle('1', 'Connexion & temps réel — Spring Boot'),
             const Text(
-              'Les livreurs se connectent via Supabase Auth et lisent les commandes via des RPC '
-              '(delivery_available_orders / delivery_my_orders), avec les mêmes règles que la page web Livraison.',
+              'Les livreurs se connectent via l’API Spring Boot (JWT). '
+              'Les notifications temps réel arrivent via FCM (recommandé) ou rafraîchissement manuel.',
               style: TextStyle(fontSize: 11, color: Color(0xFF6B7280), height: 1.35),
             ),
             const SizedBox(height: 10),
-            _SettingField(
-              ctrl: _supabaseUrlCtrl,
-              label: 'Supabase URL',
-              icon: Icons.cloud_outlined,
-              hint: 'https://votre-projet.supabase.co',
-              keyboardType: TextInputType.url,
-            ),
-            const SizedBox(height: 10),
-            _SettingField(
-              ctrl: _supabaseAnonCtrl,
-              label: 'Supabase ANON KEY',
-              icon: Icons.vpn_key_outlined,
-              hint: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...',
-              keyboardType: TextInputType.multiline,
-              maxLines: 2,
-              onChanged: (_) => setState(() {}),
-            ),
-            const SizedBox(height: 6),
-            Text(
-              key.isEmpty
-                  ? 'Clé vide : pas d’abonnement Realtime.'
-                  : keyOk
-                      ? 'Format JWT plausible (longueur=${key.length}).'
-                      : 'Clé invalide : une clé anon JWT commence en général par « eyJ ».',
-              style: TextStyle(
-                fontSize: 11,
-                color: keyOk ? const Color(0xFF16A34A) : const Color(0xFFDC2626),
-                height: 1.25,
-              ),
-            ),
-            const SizedBox(height: 10),
-            OutlinedButton.icon(
-              onPressed: _isTestingSupabase ? null : _testSupabase,
-              icon: _isTestingSupabase
-                  ? const SizedBox(
-                      width: 16,
-                      height: 16,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
-                  : const Icon(Icons.wifi_tethering_outlined),
-              label: Text(_isTestingSupabase ? 'Test…' : 'Vérifier configuration Supabase'),
-            ),
-            const SizedBox(height: 8),
-            OutlinedButton.icon(
-              onPressed: _isTestingDeliveryRpc ? null : _testDeliveryRpc,
-              icon: _isTestingDeliveryRpc
-                  ? const SizedBox(
-                      width: 16,
-                      height: 16,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
-                  : const Icon(Icons.playlist_add_check_circle_outlined),
-              label: Text(_isTestingDeliveryRpc ? 'Test…' : 'Tester RPC livraison'),
-            ),
             const SizedBox(height: 16),
             const Divider(height: 1),
             sectionTitle('2', 'API livreur — boutique par défaut'),
@@ -1867,7 +1757,6 @@ class _SettingField extends StatelessWidget {
   final IconData icon;
   final String? hint;
   final TextInputType keyboardType;
-  final int? maxLines;
   final ValueChanged<String>? onChanged;
 
   const _SettingField({
@@ -1876,7 +1765,6 @@ class _SettingField extends StatelessWidget {
     required this.icon,
     this.hint,
     this.keyboardType = TextInputType.text,
-    this.maxLines,
     this.onChanged,
   });
 
@@ -1885,7 +1773,7 @@ class _SettingField extends StatelessWidget {
     return TextFormField(
       controller: ctrl,
       keyboardType: keyboardType,
-      maxLines: maxLines ?? 1,
+      maxLines: 1,
       onChanged: onChanged,
       decoration: InputDecoration(
         labelText: label,

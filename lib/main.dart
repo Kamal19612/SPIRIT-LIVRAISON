@@ -12,6 +12,8 @@ import 'screens/login_screen.dart';
 import 'services/location_service.dart';
 import 'services/notification_service.dart';
 import 'services/polling_service.dart';
+import 'services/fcm_service.dart';
+import 'package:firebase_messaging/firebase_messaging.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -19,6 +21,10 @@ void main() async {
   await LocalDatabase.instance.init();
   await LocalDatabase.instance.ensureDefaultLocalAccounts();
   await NotificationService.instance.init();
+  try {
+    await FcmService.instance.init();
+    FirebaseMessaging.onBackgroundMessage(firebaseMessagingBackgroundHandler);
+  } catch (_) {}
 
   final authProvider = AuthProvider();
   await authProvider.init();

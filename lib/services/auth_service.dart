@@ -1,138 +1,49 @@
 import 'dart:convert';
+import 'package:dio/dio.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
-import '../database/local_database.dart';
+
+import '../database/app_config_dao.dart';
 import '../models/user_model.dart';
-import 'supabase_app_client.dart';
+import '../utils/url_normalize.dart';
 
 class AuthService {
   AuthService._();
   static final AuthService instance = AuthService._();
 
   final _storage = const FlutterSecureStorage();
-  static const _sessionKey = 'supabase_session_json';
-  static const _localSessionKey = 'local_delivery_user_json';
+  static const _jwtKey = 'store_api_jwt';
+  static const _userKey = 'store_api_user_json';
 
-  Future<UserModel> login(String email, String password) async {
-    final trimmed = email.trim();
-    final localUser =
-        await LocalDatabase.instance.authenticateLocalUser(trimmed, password);
-    if (localUser != null) {
-      await _storage.delete(key: _sessionKey);
-      await _persistLocalSession(localUser);
-      return localUser;
-    }
+  final Dio _dio = Dio(
+    BaseOptions(
+      connectTimeout: const Duration(seconds: 12),
+      receiveTimeout: const Duration(seconds: 25),
+      validateStatus: (s) => s != null && s < 500,
+    ),
+  );
 
-    final client = await SupabaseAppClient.instance.client();
-    await _storage.delete(key: _localSessionKey);
-
-    final res = await client.auth.signInWithPassword(
-      email: trimmed,
-      password: password,
-    );
-
-    final session = res.session;
-    if (session == null) {
-      throw Exception('Connexion Supabase impossible (session absente).');
-    }
-
-    // Persister la session pour restauration au prochain démarrage.
-    await _storage.write(key: _sessionKey, value: jsonEncode(session.toJson()));
-
-    // Lire le mapping delivery_agents (auth -> store user id + rôle)
-    final resRows = await client
-        .from('delivery_agents')
-        .select('store_user_id, role, is_active')
-        .eq('auth_user_id', session.user.id)
-        .limit(1);
-
-    final agentRows = (resRows as List).cast<dynamic>();
-    if (agentRows.isEmpty) {
-      await client.auth.signOut();
-      throw Exception(
-        'Compte non autorisé: ce user Supabase n’est pas enregistré dans delivery_agents.',
-      );
-    }
-
-    final row = Map<String, dynamic>.from(agentRows.first as Map);
-    final active = row['is_active'] == true;
-    if (!active) {
-      await client.auth.signOut();
-      throw Exception('Compte désactivé.');
-    }
-
-    final storeUserId = (row['store_user_id'] as num).toInt();
-    final role = (row['role']?.toString() ?? 'DELIVERY_AGENT').toUpperCase();
-
-    return UserModel(id: storeUserId, username: trimmed, role: role);
-  }
-
-  Future<void> _persistLocalSession(UserModel user) async {
-    await _storage.write(
-      key: _localSessionKey,
-      value: jsonEncode({
-        'id': user.id,
-        'username': user.username,
-        'role': user.role,
-      }),
-    );
-  }
-
-  Future<UserModel?> _tryRestoreLocalSession() async {
-    final raw = await _storage.read(key: _localSessionKey);
-    if (raw == null || raw.isEmpty) return null;
-    try {
-      final map = jsonDecode(raw) as Map<String, dynamic>;
-      final id = (map['id'] as num).toInt();
-      final rows = await LocalDatabase.instance.db.query(
-        'users',
-        where: 'id = ?',
-        whereArgs: [id],
-        limit: 1,
-      );
-      if (rows.isEmpty) return null;
-      final row = rows.first;
-      if ((row['active'] as int? ?? 1) != 1) return null;
-      return UserModel.fromSqlite(row);
-    } catch (_) {
-      return null;
-    }
+  Future<String?> _apiOrigin() async {
+    final raw = await AppConfigDao.instance.getValue('store_api_origin');
+    final origin = normalizeHttpOrigin(raw ?? '');
+    if (origin == null || origin.trim().isEmpty) return null;
+    return origin;
   }
 
   Future<void> logout() async {
-    try {
-      final client = await SupabaseAppClient.instance.client();
-      await client.auth.signOut();
-    } catch (_) {}
-    await _storage.delete(key: _sessionKey);
-    await _storage.delete(key: _localSessionKey);
+    await _storage.delete(key: _jwtKey);
+    await _storage.delete(key: _userKey);
   }
 
   Future<UserModel?> tryRestoreSession() async {
-    final local = await _tryRestoreLocalSession();
-    if (local != null) return local;
-
-    final raw = await _storage.read(key: _sessionKey);
+    final raw = await _storage.read(key: _userKey);
     if (raw == null || raw.isEmpty) return null;
     try {
-      final client = await SupabaseAppClient.instance.client();
-      final res = await client.auth.recoverSession(raw);
-      final session = res.session;
-      if (session == null) return null;
-
-      final resRows = await client
-          .from('delivery_agents')
-          .select('store_user_id, role, is_active')
-          .eq('auth_user_id', session.user.id)
-          .limit(1);
-
-      final agentRows = (resRows as List).cast<dynamic>();
-      if (agentRows.isEmpty) return null;
-      final row = Map<String, dynamic>.from(agentRows.first as Map);
-      if (row['is_active'] != true) return null;
-
-      final storeUserId = (row['store_user_id'] as num).toInt();
-      final role = (row['role']?.toString() ?? 'DELIVERY_AGENT').toUpperCase();
-      return UserModel(id: storeUserId, username: session.user.email ?? '', role: role);
+      final map = jsonDecode(raw) as Map<String, dynamic>;
+      final id = (map['id'] as num?)?.toInt() ?? 0;
+      final username = map['username']?.toString() ?? '';
+      final role = map['role']?.toString() ?? 'DELIVERY_AGENT';
+      if (id <= 0 || username.isEmpty) return null;
+      return UserModel(id: id, username: username, role: role);
     } catch (_) {
       return null;
     }
@@ -141,5 +52,64 @@ class AuthService {
   Future<int?> getCurrentUserId() async {
     final u = await tryRestoreSession();
     return u?.id;
+  }
+
+  Future<UserModel> login(String usernameOrEmail, String password) async {
+    final origin = await _apiOrigin();
+    if (origin == null) {
+      throw Exception("API boutique non configurée (store_api_origin).");
+    }
+
+    final res = await _dio.post<dynamic>(
+      '$origin/api/auth/login',
+      data: {'username': usernameOrEmail.trim(), 'password': password},
+      options: Options(
+        contentType: Headers.jsonContentType,
+        headers: {'Accept': 'application/json'},
+      ),
+    );
+
+    if ((res.statusCode ?? 0) < 200 || (res.statusCode ?? 0) >= 300 || res.data is! Map) {
+      throw Exception(_errorMessage(res, fallback: 'Erreur de connexion'));
+    }
+
+    final map = Map<String, dynamic>.from(res.data as Map);
+    final token = map['token']?.toString() ?? '';
+    if (token.isEmpty) throw Exception('Token absent.');
+
+    // roles: ["ROLE_ADMIN", ...]
+    final roles = map['roles'];
+    final roleStr = roles is List ? roles.join(' ') : (roles?.toString() ?? '');
+
+    final isDelivery = roleStr.contains('ROLE_DELIVERY_AGENT') || map['role']?.toString() == 'livreur';
+    final isAdmin = roleStr.contains('ROLE_ADMIN') ||
+        roleStr.contains('ROLE_SUPER_ADMIN') ||
+        roleStr.contains('ROLE_MANAGER') ||
+        map['role']?.toString() == 'admin';
+
+    if (!isDelivery && !isAdmin) {
+      throw Exception('Compte sans accès livraison/admin.');
+    }
+
+    final effectiveRole = isDelivery ? 'DELIVERY_AGENT' : 'ADMIN';
+    final id = (map['livreurId'] as num?)?.toInt() ?? (map['userId'] as num?)?.toInt() ?? 0;
+    final nom = map['nom']?.toString();
+    final display = (nom != null && nom.trim().isNotEmpty) ? nom.trim() : usernameOrEmail.trim();
+
+    final user = UserModel(id: id > 0 ? id : 1, username: display, role: effectiveRole);
+
+    await _storage.write(key: _jwtKey, value: token);
+    await _storage.write(
+      key: _userKey,
+      value: jsonEncode({'id': user.id, 'username': user.username, 'role': user.role}),
+    );
+    return user;
+  }
+
+  String _errorMessage(Response<dynamic> res, {required String fallback}) {
+    final data = res.data;
+    if (data is Map && data['message'] != null) return data['message'].toString();
+    if (data is String && data.isNotEmpty) return data;
+    return '$fallback (${res.statusCode ?? 0})';
   }
 }

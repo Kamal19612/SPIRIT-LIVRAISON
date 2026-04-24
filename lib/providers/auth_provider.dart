@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 import '../models/user_model.dart';
 import '../services/auth_service.dart';
+import '../services/fcm_service.dart';
 
 class AuthProvider extends ChangeNotifier {
   UserModel? _user;
@@ -31,6 +32,9 @@ class AuthProvider extends ChangeNotifier {
 
     try {
       _user = await AuthService.instance.login(username, password);
+      try {
+        await FcmService.instance.registerIfPossible(this);
+      } catch (_) {}
     } catch (e) {
       _errorMessage = e.toString().replaceFirst('Exception: ', '');
       _user = null;

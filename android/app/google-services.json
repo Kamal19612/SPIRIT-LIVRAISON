@@ -1,0 +1,29 @@
+{
+    "project_info": {
+      "project_number": "856569616519",
+      "project_id": "spirit-livraison",
+      "storage_bucket": "spirit-livraison.firebasestorage.app"
+    },
+    "client": [
+      {
+        "client_info": {
+          "mobilesdk_app_id": "1:856569616519:android:71c69e03fa95e023e70022",
+          "android_client_info": {
+            "package_name": "com.example.appstore"
+          }
+        },
+        "oauth_client": [],
+        "api_key": [
+          {
+            "current_key": "AIzaSyBalacrTo-x0LJsBNaUPKDQffmUAnXnclI"
+          }
+        ],
+        "services": {
+          "appinvite_service": {
+            "other_platform_oauth_client": []
+          }
+        }
+      }
+    ],
+    "configuration_version": "1"
+  }
