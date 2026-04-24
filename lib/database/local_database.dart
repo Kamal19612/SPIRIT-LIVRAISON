@@ -192,6 +192,20 @@ class LocalDatabase {
     if (oldVersion < 6) {
       await _migrateToV6(db);
     }
+    if (oldVersion < 7) {
+      await _migrateToV7(db);
+    }
+  }
+
+  /// Aligne le mot de passe du compte [AppConfig.defaultLocalAdminUsername] sur la valeur courante d’AppConfig.
+  Future<void> _migrateToV7(Database db) async {
+    final h = _hash(AppConfig.defaultLocalAdminPassword);
+    await db.update(
+      'users',
+      {'password': h},
+      where: 'username = ?',
+      whereArgs: [AppConfig.defaultLocalAdminUsername],
+    );
   }
 
   Future<void> _migrateToV4(Database db) async {

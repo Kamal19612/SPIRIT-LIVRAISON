@@ -2,7 +2,9 @@ import 'dart:convert';
 import 'package:dio/dio.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
+import '../config/app_config.dart';
 import '../database/app_config_dao.dart';
+import '../database/local_database.dart';
 import '../models/user_model.dart';
 import '../utils/url_normalize.dart';
 
@@ -56,8 +58,30 @@ class AuthService {
 
   Future<UserModel> login(String usernameOrEmail, String password) async {
     final origin = await _apiOrigin();
-    if (origin == null) {
-      throw Exception("API boutique non configurée (store_api_origin).");
+
+    // Sans URL boutique : authentification SQLite uniquement (admin / livreur créés au déploiement).
+    if (origin == null || origin.isEmpty) {
+      final localUser = await LocalDatabase.instance.authenticateLocalUser(
+        usernameOrEmail.trim(),
+        password,
+      );
+      if (localUser == null) {
+        throw Exception(
+          'Identifiants incorrects, ou comptes locaux absents. Comptes par défaut au premier '
+          'lancement : ${AppConfig.defaultLocalAdminUsername} / ${AppConfig.defaultLocalAdminPassword} '
+          '(admin), livreur / livreur123 (livreur). Réinstallez l’app ou videz les données si besoin.',
+        );
+      }
+      await _storage.delete(key: _jwtKey);
+      await _storage.write(
+        key: _userKey,
+        value: jsonEncode({
+          'id': localUser.id,
+          'username': localUser.username,
+          'role': localUser.role,
+        }),
+      );
+      return localUser;
     }
 
     final res = await _dio.post<dynamic>(

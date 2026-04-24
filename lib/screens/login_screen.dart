@@ -1,6 +1,8 @@
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import '../config/app_config.dart';
+import '../database/app_config_dao.dart';
 import '../providers/app_config_provider.dart';
 import '../providers/auth_provider.dart';
 
@@ -16,6 +18,8 @@ class _LoginScreenState extends State<LoginScreen> {
   final TextEditingController _passwordController = TextEditingController();
   bool    _obscurePassword = true;
   String? _localError;
+  /// `null` = chargement ; `false` = pas d’URL API → connexion locale possible.
+  bool? _storeApiConfigured;
 
   static const Color _gray300 = Color(0xFFD1D5DB);
   static const Color _gray500 = Color(0xFF6B7280);
@@ -26,11 +30,15 @@ class _LoginScreenState extends State<LoginScreen> {
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
       final auth = context.read<AuthProvider>();
       if (auth.isAuthenticated) {
         _routeByRole(auth);
+        return;
       }
+      final raw = await AppConfigDao.instance.getValue('store_api_origin');
+      final configured = raw != null && raw.trim().isNotEmpty;
+      if (mounted) setState(() => _storeApiConfigured = configured);
     });
   }
 
@@ -114,6 +122,10 @@ class _LoginScreenState extends State<LoginScreen> {
                         _buildLabel('Mot de passe'),
                         const SizedBox(height: 6),
                         _buildPasswordField(),
+                        if (_storeApiConfigured == false) ...[
+                          const SizedBox(height: 14),
+                          _buildLocalBootstrapHint(),
+                        ],
                         const SizedBox(height: 20),
                         _buildSubmitButton(auth.isLoading, primary),
                       ],
@@ -259,6 +271,32 @@ class _LoginScreenState extends State<LoginScreen> {
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  /// Affiché tant que l’URL API boutique n’est pas enregistrée (premier déploiement).
+  Widget _buildLocalBootstrapHint() {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF0FDF4),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: const Color(0xFFBBF7D0)),
+      ),
+      child: Text(
+        'Premier lancement : sans URL API boutique, la connexion utilise les comptes '
+        'locaux créés automatiquement — admin : '
+        '${AppConfig.defaultLocalAdminUsername} / ${AppConfig.defaultLocalAdminPassword} ; '
+        'livreur démo : livreur / livreur123. Ensuite, configurez l’URL dans Admin → '
+        'Intégrations ; la connexion passera alors par la boutique (Spring).',
+        style: const TextStyle(
+          fontSize: 11.5,
+          height: 1.35,
+          color: Color(0xFF166534),
+          fontWeight: FontWeight.w500,
+        ),
       ),
     );
   }
