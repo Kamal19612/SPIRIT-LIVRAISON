@@ -213,11 +213,37 @@ class LocalDatabase {
   }
 
   Future<void> _migrateToV8(Database db) async {
-    await db.insert(
+    // Si l’installation existante a une ancienne URL (ou une URL vide), on la corrige.
+    // Sinon on ne casse pas la config déjà personnalisée.
+    final rows = await db.query(
       'app_config',
-      {'key': 'store_api_origin', 'value': AppConfig.defaultStoreApiOrigin},
-      conflictAlgorithm: ConflictAlgorithm.ignore,
+      columns: ['value'],
+      where: 'key = ?',
+      whereArgs: ['store_api_origin'],
+      limit: 1,
     );
+    if (rows.isEmpty) {
+      await db.insert(
+        'app_config',
+        {'key': 'store_api_origin', 'value': AppConfig.defaultStoreApiOrigin},
+        conflictAlgorithm: ConflictAlgorithm.ignore,
+      );
+      return;
+    }
+
+    final current = (rows.first['value'] as String?)?.trim() ?? '';
+    final normalized = normalizeStoreApiOrigin(current) ?? '';
+    final lower = normalized.toLowerCase();
+    final shouldReplace =
+        lower.isEmpty || lower.contains('sucre-store.socialracine.com');
+    if (shouldReplace) {
+      await db.update(
+        'app_config',
+        {'value': AppConfig.defaultStoreApiOrigin},
+        where: 'key = ?',
+        whereArgs: ['store_api_origin'],
+      );
+    }
   }
 
   Future<void> _migrateToV4(Database db) async {
