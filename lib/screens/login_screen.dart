@@ -1,7 +1,6 @@
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import '../config/app_config.dart';
 import '../database/app_config_dao.dart';
 import '../providers/app_config_provider.dart';
 import '../providers/auth_provider.dart';
@@ -118,7 +117,7 @@ class _LoginScreenState extends State<LoginScreen> {
                         const SizedBox(height: 6),
                         _buildTextField(
                           controller: _usernameController,
-                          hint: 'ex. admin (local) ou livreur@sucrestore.com',
+                          hint: 'Identifiant Spring Boot ou compte local',
                           icon: Icons.person_outline,
                         ),
                         const SizedBox(height: 16),
@@ -293,10 +292,10 @@ class _LoginScreenState extends State<LoginScreen> {
         border: Border.all(color: const Color(0xFFFDE68A)),
       ),
       child: const Text(
-        'URL API boutique renseignée : la connexion utilise les comptes du serveur '
-        'Sucre Store (Spring), pas les identifiants locaux admin / livreur. '
-        'Pour tester en mode SQLite uniquement : effacez les données de l’app ou '
-        'réinstallez-la, ou retirez store_api_origin (Admin → Intégrations une fois connecté).',
+        'URL API boutique renseignée : la connexion utilise POST /api/auth/login sur le '
+        'backend Spring (JWT). Les comptes sont ceux du serveur, pas une base locale par défaut. '
+        'Pour le mode SQLite uniquement : retirez ou videz store_api_origin (Admin → Intégrations) '
+        'et utilisez un compte livreur créé dans l’app.',
         style: TextStyle(
           fontSize: 11.5,
           height: 1.35,
@@ -317,13 +316,12 @@ class _LoginScreenState extends State<LoginScreen> {
         borderRadius: BorderRadius.circular(10),
         border: Border.all(color: const Color(0xFFBBF7D0)),
       ),
-      child: Text(
-        'Premier lancement : sans URL API boutique, la connexion utilise les comptes '
-        'locaux créés automatiquement — admin : '
-        '${AppConfig.defaultLocalAdminUsername} / ${AppConfig.defaultLocalAdminPassword} ; '
-        'livreur démo : livreur / livreur123. Ensuite, configurez l’URL dans Admin → '
-        'Intégrations ; la connexion passera alors par la boutique (Spring).',
-        style: const TextStyle(
+      child: const Text(
+        'Aucune URL API boutique valide : connexion SQLite uniquement (comptes créés '
+        'depuis l’écran Admin). Pour utiliser Spring Boot (POST /api/auth/login), '
+        'renseignez l’URL du backend. En cas de blocage, effacer les données de l’app '
+        'réapplique l’URL par défaut du build.',
+        style: TextStyle(
           fontSize: 11.5,
           height: 1.35,
           color: Color(0xFF166534),

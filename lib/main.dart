@@ -19,7 +19,6 @@ void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
   await LocalDatabase.instance.init();
-  await LocalDatabase.instance.ensureDefaultLocalAccounts();
   await NotificationService.instance.init();
   try {
     await FcmService.instance.init();

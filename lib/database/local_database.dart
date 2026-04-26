@@ -5,6 +5,7 @@ import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:path/path.dart';
 import '../config/app_config.dart';
 import '../models/user_model.dart';
+import '../utils/url_normalize.dart';
 
 class LocalDatabase {
   LocalDatabase._();
@@ -165,22 +166,6 @@ class LocalDatabase {
           conflictAlgorithm: ConflictAlgorithm.ignore);
     }
     await batch.commit();
-
-    // ── Seed : compte admin ──────────────────────────────────────────────────
-    await db.insert('users', {
-      'username': AppConfig.defaultLocalAdminUsername,
-      'password': _hash(AppConfig.defaultLocalAdminPassword),
-      'role': 'ADMIN',
-      'active': 1,
-    });
-
-    // ── Seed : livreur par défaut ────────────────────────────────────────────
-    await db.insert('users', {
-      'username': 'livreur',
-      'password': _hash('livreur123'),
-      'role': 'DELIVERY_AGENT',
-      'active': 1,
-    });
   }
 
   Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
@@ -193,23 +178,42 @@ class LocalDatabase {
     if (oldVersion < 6) {
       await _migrateToV6(db);
     }
-    if (oldVersion < 7) {
-      await _migrateToV7(db);
-    }
     if (oldVersion < 8) {
       await _migrateToV8(db);
     }
+    if (oldVersion < 9) {
+      await _migrateToV9(db);
+    }
+    if (oldVersion < 10) {
+      await _migrateToV10(db);
+    }
   }
 
-  /// Aligne le mot de passe du compte [AppConfig.defaultLocalAdminUsername] sur la valeur courante d’AppConfig.
-  Future<void> _migrateToV7(Database db) async {
-    final h = _hash(AppConfig.defaultLocalAdminPassword);
-    await db.update(
-      'users',
-      {'password': h},
-      where: 'username = ?',
-      whereArgs: [AppConfig.defaultLocalAdminUsername],
+  /// No-op (réservé pour chaîne de versions déjà déployée).
+  Future<void> _migrateToV9(Database db) async {}
+
+  /// Répare les installs ayant reçu l’URL `api.sucrestore.com` par erreur ; Spring est sur spdelivery.
+  Future<void> _migrateToV10(Database db) async {
+    const mistakenOrigin = 'https://api.sucrestore.com';
+    final rows = await db.query(
+      'app_config',
+      columns: ['value'],
+      where: 'key = ?',
+      whereArgs: ['store_api_origin'],
+      limit: 1,
     );
+    if (rows.isEmpty) return;
+    final current = (rows.first['value'] as String?)?.trim() ?? '';
+    final n = normalizeHttpOrigin(current);
+    final wrong = normalizeHttpOrigin(mistakenOrigin);
+    if (n != null && wrong != null && n == wrong) {
+      await db.update(
+        'app_config',
+        {'value': AppConfig.defaultStoreApiOrigin},
+        where: 'key = ?',
+        whereArgs: ['store_api_origin'],
+      );
+    }
   }
 
   Future<void> _migrateToV8(Database db) async {
@@ -232,7 +236,7 @@ class LocalDatabase {
     }
 
     final current = (rows.first['value'] as String?)?.trim() ?? '';
-    final normalized = normalizeStoreApiOrigin(current) ?? '';
+    final normalized = normalizeHttpOrigin(current) ?? '';
     final lower = normalized.toLowerCase();
     final shouldReplace =
         lower.isEmpty || lower.contains('sucre-store.socialracine.com');
@@ -316,41 +320,6 @@ class LocalDatabase {
 
   Future<void> clearOrders() async {
     await db.delete('orders');
-  }
-
-  /// Garantit le compte admin (et livreur démo) en base pour les installs / migrations anciennes.
-  Future<void> ensureDefaultLocalAccounts() async {
-    final database = db;
-    Future<void> ensureUser({
-      required String username,
-      required String plainPassword,
-      required String role,
-    }) async {
-      final existing = await database.query(
-        'users',
-        where: 'username = ?',
-        whereArgs: [username],
-        limit: 1,
-      );
-      if (existing.isNotEmpty) return;
-      await database.insert('users', {
-        'username': username,
-        'password': _hash(plainPassword),
-        'role': role,
-        'active': 1,
-      });
-    }
-
-    await ensureUser(
-      username: AppConfig.defaultLocalAdminUsername,
-      plainPassword: AppConfig.defaultLocalAdminPassword,
-      role: 'ADMIN',
-    );
-    await ensureUser(
-      username: 'livreur',
-      plainPassword: 'livreur123',
-      role: 'DELIVERY_AGENT',
-    );
   }
 
   Future<UserModel?> authenticateLocalUser(

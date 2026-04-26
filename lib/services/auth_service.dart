@@ -2,7 +2,6 @@ import 'dart:convert';
 import 'package:dio/dio.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
-import '../config/app_config.dart';
 import '../database/app_config_dao.dart';
 import '../database/local_database.dart';
 import '../models/user_model.dart';
@@ -59,7 +58,7 @@ class AuthService {
   Future<UserModel> login(String usernameOrEmail, String password) async {
     final origin = await _apiOrigin();
 
-    // Sans URL boutique : authentification SQLite uniquement (admin / livreur créés au déploiement).
+    // Sans URL boutique : authentification SQLite uniquement (comptes créés depuis l’admin app).
     if (origin == null || origin.isEmpty) {
       final localUser = await LocalDatabase.instance.authenticateLocalUser(
         usernameOrEmail.trim(),
@@ -67,9 +66,10 @@ class AuthService {
       );
       if (localUser == null) {
         throw Exception(
-          'Identifiants incorrects, ou comptes locaux absents. Comptes par défaut au premier '
-          'lancement : ${AppConfig.defaultLocalAdminUsername} / ${AppConfig.defaultLocalAdminPassword} '
-          '(admin), livreur / livreur123 (livreur). Réinstallez l’app ou videz les données si besoin.',
+          'Identifiants incorrects ou aucun compte local. Sans URL API boutique, seuls les '
+          'utilisateurs enregistrés dans l’app (écran Admin) peuvent se connecter. Sinon, '
+          'renseignez l’URL du backend Spring (clé store_api_origin) pour utiliser '
+          'POST /api/auth/login.',
         );
       }
       await _storage.delete(key: _jwtKey);
