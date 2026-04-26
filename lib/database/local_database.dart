@@ -159,6 +159,7 @@ class LocalDatabase {
       {'key': 'contact_phone', 'value': ''},
       {'key': 'contact_email', 'value': ''},
       {'key': 'support_whatsapp', 'value': ''},
+      {'key': 'store_api_origin', 'value': AppConfig.defaultStoreApiOrigin},
     ]) {
       batch.insert('app_config', entry,
           conflictAlgorithm: ConflictAlgorithm.ignore);
@@ -195,6 +196,9 @@ class LocalDatabase {
     if (oldVersion < 7) {
       await _migrateToV7(db);
     }
+    if (oldVersion < 8) {
+      await _migrateToV8(db);
+    }
   }
 
   /// Aligne le mot de passe du compte [AppConfig.defaultLocalAdminUsername] sur la valeur courante d’AppConfig.
@@ -205,6 +209,14 @@ class LocalDatabase {
       {'password': h},
       where: 'username = ?',
       whereArgs: [AppConfig.defaultLocalAdminUsername],
+    );
+  }
+
+  Future<void> _migrateToV8(Database db) async {
+    await db.insert(
+      'app_config',
+      {'key': 'store_api_origin', 'value': AppConfig.defaultStoreApiOrigin},
+      conflictAlgorithm: ConflictAlgorithm.ignore,
     );
   }
 

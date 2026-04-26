@@ -5,6 +5,7 @@ import '../config/app_config.dart';
 import '../database/app_config_dao.dart';
 import '../providers/app_config_provider.dart';
 import '../providers/auth_provider.dart';
+import '../utils/url_normalize.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -18,7 +19,7 @@ class _LoginScreenState extends State<LoginScreen> {
   final TextEditingController _passwordController = TextEditingController();
   bool    _obscurePassword = true;
   String? _localError;
-  /// `null` = chargement ; `false` = pas d’URL API → connexion locale possible.
+  /// `null` = chargement ; `false` = pas d’origine API normalisée → SQLite (comptes locaux).
   bool? _storeApiConfigured;
 
   static const Color _gray300 = Color(0xFFD1D5DB);
@@ -37,7 +38,9 @@ class _LoginScreenState extends State<LoginScreen> {
         return;
       }
       final raw = await AppConfigDao.instance.getValue('store_api_origin');
-      final configured = raw != null && raw.trim().isNotEmpty;
+      final origin = normalizeHttpOrigin(raw ?? '');
+      final configured =
+          origin != null && origin.trim().isNotEmpty;
       if (mounted) setState(() => _storeApiConfigured = configured);
     });
   }
@@ -125,6 +128,10 @@ class _LoginScreenState extends State<LoginScreen> {
                         if (_storeApiConfigured == false) ...[
                           const SizedBox(height: 14),
                           _buildLocalBootstrapHint(),
+                        ],
+                        if (_storeApiConfigured == true) ...[
+                          const SizedBox(height: 14),
+                          _buildRemoteApiHint(),
                         ],
                         const SizedBox(height: 20),
                         _buildSubmitButton(auth.isLoading, primary),
@@ -271,6 +278,31 @@ class _LoginScreenState extends State<LoginScreen> {
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  /// Affiché lorsque [AuthService] utilise `POST …/api/auth/login` (origine normalisée non vide).
+  Widget _buildRemoteApiHint() {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: const Color(0xFFFFFBEB),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: const Color(0xFFFDE68A)),
+      ),
+      child: const Text(
+        'URL API boutique renseignée : la connexion utilise les comptes du serveur '
+        'Sucre Store (Spring), pas les identifiants locaux admin / livreur. '
+        'Pour tester en mode SQLite uniquement : effacez les données de l’app ou '
+        'réinstallez-la, ou retirez store_api_origin (Admin → Intégrations une fois connecté).',
+        style: TextStyle(
+          fontSize: 11.5,
+          height: 1.35,
+          color: Color(0xFF92400E),
+          fontWeight: FontWeight.w500,
+        ),
       ),
     );
   }
