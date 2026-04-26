@@ -99,10 +99,11 @@ class StoreApiBridge {
       final roleStr = roles is List ? roles.join(' ') : roles?.toString() ?? '';
       if (!roleStr.contains('DELIVERY_AGENT') &&
           !roleStr.contains('ADMIN') &&
-          !roleStr.contains('SUPER_ADMIN')) {
+          !roleStr.contains('SUPER_ADMIN') &&
+          !roleStr.contains('MANAGER')) {
         await clearSession();
         throw Exception(
-          'Ce compte boutique n’a pas le rôle livreur ou admin.',
+          'Ce compte boutique n’a pas le rôle livreur, manager ou admin.',
         );
       }
       await _storage.write(key: _jwtKey, value: token);
@@ -145,6 +146,8 @@ class StoreApiBridge {
     _ensure2xx(res, 'Validation livraison');
   }
 
+  /// Enregistre le token FCM auprès du backend Sucre Store (même compte d’où vient le JWT).
+  /// Utilise d’abord l’endpoint officiel Spring, puis l’alias historique du webhook mobile.
   Future<void> registerFcmToken({
     required String token,
     required String platform,
@@ -152,13 +155,31 @@ class StoreApiBridge {
     final origin = await apiOrigin;
     final jwtToken = await jwt;
     if (origin == null || jwtToken == null) return;
-    final url = '$origin/api/webhooks/livraison/inscription';
-    final res = await _dio.post<dynamic>(
-      url,
-      data: {'token': token, 'platform': platform},
-      options: Options(headers: _authHeaders(jwtToken)),
-    );
-    _ensure2xx(res, 'Enregistrement FCM');
+
+    const paths = <String>[
+      '/api/delivery/devices/register',
+      '/api/webhooks/livraison/inscription',
+    ];
+    Object? lastError;
+    for (final path in paths) {
+      final url = '$origin$path';
+      try {
+        final res = await _dio.post<dynamic>(
+          url,
+          data: {'token': token, 'platform': platform},
+          options: Options(headers: _authHeaders(jwtToken)),
+        );
+        if (res.statusCode != null && res.statusCode! >= 200 && res.statusCode! < 300) {
+          return;
+        }
+        lastError = res.data;
+      } on DioException catch (e) {
+        lastError = e;
+      }
+    }
+    if (lastError != null) {
+      throw Exception('Enregistrement FCM: $lastError');
+    }
   }
 
   Map<String, String> _authHeaders(String token) => {

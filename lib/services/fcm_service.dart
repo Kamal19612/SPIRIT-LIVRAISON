@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:firebase_core/firebase_core.dart';
@@ -36,25 +37,32 @@ class FcmService {
     await Firebase.initializeApp();
     await FirebaseMessaging.instance.requestPermission();
     _initialized = true;
+    // Renouvellement de token (rotation FCM) → re-sync backend
+    FirebaseMessaging.instance.onTokenRefresh.listen((t) {
+      unawaited(_registerTokenToBackend(t));
+    });
   }
 
-  /// Enregistre le token device côté Spring Boot:
-  /// POST /api/webhooks/livraison/inscription
+  Future<void> _registerTokenToBackend(String fcmToken) async {
+    try {
+      await StoreApiBridge.instance.registerFcmToken(
+        token: fcmToken,
+        platform: Platform.isIOS ? 'ios' : 'android',
+      );
+    } catch (_) {
+      // non bloquant (hors-ligne, JWT manquant, etc.)
+    }
+  }
+
+  /// Enregistre le token device côté Spring Boot
+  /// (`/api/delivery/devices/register` puis alias `/api/webhooks/livraison/inscription`).
   Future<void> registerIfPossible(AuthProvider auth) async {
     if (!_initialized) return;
     if (!auth.isAuthenticated) return;
 
     final token = await FirebaseMessaging.instance.getToken();
     if (token == null || token.isEmpty) return;
-
-    try {
-      await StoreApiBridge.instance.registerFcmToken(
-        token: token,
-        platform: Platform.isIOS ? 'ios' : 'android',
-      );
-    } catch (_) {
-      // non bloquant
-    }
+    await _registerTokenToBackend(token);
   }
 
   /// Écoute les messages FCM en foreground et peut déclencher un refresh commandes.

@@ -20,6 +20,9 @@ class AuthProvider extends ChangeNotifier {
     final restored = await AuthService.instance.tryRestoreSession();
     if (restored != null) {
       _user = restored;
+      try {
+        await FcmService.instance.registerIfPossible(this);
+      } catch (_) {}
     }
     _isInitializing = false;
     notifyListeners();
