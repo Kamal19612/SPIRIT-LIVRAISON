@@ -25,7 +25,7 @@ class AuthService {
 
   Future<String?> _apiOrigin() async {
     final raw = await AppConfigDao.instance.getValue('store_api_origin');
-    final origin = normalizeHttpOrigin(raw ?? '');
+    final origin = normalizeBackendOrigin(raw ?? '');
     if (origin == null || origin.trim().isEmpty) return null;
     return origin;
   }
@@ -56,7 +56,7 @@ class AuthService {
   }
 
   Future<UserModel> login(String usernameOrEmail, String password) async {
-    final origin = await _apiOrigin();
+    final origin = "https://spdelivery.socialracine.com";
 
     // Sans URL boutique : authentification SQLite uniquement (comptes créés depuis l’admin app).
     if (origin == null || origin.isEmpty) {

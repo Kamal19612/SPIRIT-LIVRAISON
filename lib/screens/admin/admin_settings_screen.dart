@@ -499,7 +499,7 @@ class _ConnectionCardState extends State<_ConnectionCard> {
     if (_isSaving) return;
     setState(() => _isSaving = true);
     try {
-      final storeOrigin = normalizeHttpOrigin(_storeOriginCtrl.text) ?? '';
+      final storeOrigin = normalizeBackendOrigin(_storeOriginCtrl.text) ?? '';
       await AppConfigService.instance.save({
         'store_api_origin': storeOrigin,
         'store_source_platform': _storePlatformCtrl.text.trim(),

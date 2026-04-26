@@ -38,3 +38,27 @@ String? normalizeHttpOrigin(String raw) {
 
   return s.isEmpty ? null : s;
 }
+
+/// Normalise l’origine du backend Spring Boot attendue par l’app, **sans** suffixe `/api`.
+///
+/// L’app construit ensuite les endpoints avec `{origin}/api/...`.
+/// Ex: si l’utilisateur colle `https://spdelivery.socialracine.com/api`,
+/// on doit stocker/consommer `https://spdelivery.socialracine.com` pour éviter `/api/api/...`.
+String? normalizeBackendOrigin(String raw) {
+  final base = normalizeHttpOrigin(raw);
+  if (base == null || base.isEmpty) return null;
+
+  final uri = Uri.tryParse(base);
+  if (uri == null) {
+    return base.endsWith('/api') ? base.substring(0, base.length - 4) : base;
+  }
+
+  if (uri.path == '/api') {
+    final cleaned = uri.replace(path: '').toString();
+    return cleaned.isEmpty ? null : cleaned;
+  }
+
+  // Fallback (au cas où Uri.tryParse garde un path atypique)
+  if (base.endsWith('/api')) return base.substring(0, base.length - 4);
+  return base;
+}

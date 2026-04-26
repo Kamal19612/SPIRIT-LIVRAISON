@@ -32,7 +32,7 @@ class StoreApiBridge {
   Future<String?> get apiOrigin async {
     final v = await AppConfigDao.instance.getValue('store_api_origin');
     if (v == null || v.trim().isEmpty) return null;
-    return normalizeStoreApiOrigin(v);
+    return normalizeBackendOrigin(v);
   }
 
   /// Plateforme [Order.sourcePlatform] pour laquelle on appelle l’API STORE.
@@ -192,5 +192,5 @@ class StoreApiBridge {
 
 /// Origine boutique sans slash final (les chemins d’appel incluent `/api/...`).
 ///
-/// Réutilise [normalizeHttpOrigin] pour corriger les espaces parasites dans les URLs collées.
-String? normalizeStoreApiOrigin(String raw) => normalizeHttpOrigin(raw);
+/// Réutilise [normalizeBackendOrigin] pour corriger les espaces parasites et retirer un `/api` collé par erreur.
+String? normalizeStoreApiOrigin(String raw) => normalizeBackendOrigin(raw);
