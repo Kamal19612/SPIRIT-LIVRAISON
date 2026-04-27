@@ -11,5 +11,5 @@ class AppConfig {
   /// (les appels utilisent `{origin}/api/...`). Surchargeable : Admin app → Intégrations.
   /// En local : `http://<IP>:8081`.
   /// API Spring (Sucre Store / même backend que la boutique). Surchargeable : Admin app → Intégrations.
-  static const String defaultStoreApiOrigin = 'https://sucrestore.socialracine.com';
+  static const String defaultStoreApiOrigin = 'https://spdelivery.socialracine.com';
 }
