@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../providers/admin_provider.dart';
@@ -18,6 +20,7 @@ class AdminShell extends StatefulWidget {
 
 class _AdminShellState extends State<AdminShell> {
   int _selectedIndex = 0;
+  Timer? _adminRefreshTimer;
 
   static const _screens = [
     AdminDashboardScreen(),
@@ -32,11 +35,22 @@ class _AdminShellState extends State<AdminShell> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       context.read<AdminProvider>().loadAll();
       context.read<PollingService>().addListener(_onPollUpdate);
+      final auth = context.read<AuthProvider>();
+      if (auth.user?.isAdmin == true) {
+        _adminRefreshTimer = Timer.periodic(
+          const Duration(seconds: 45),
+          (_) {
+            if (!mounted) return;
+            context.read<AdminProvider>().loadAll();
+          },
+        );
+      }
     });
   }
 
   @override
   void dispose() {
+    _adminRefreshTimer?.cancel();
     context.read<PollingService>().removeListener(_onPollUpdate);
     super.dispose();
   }

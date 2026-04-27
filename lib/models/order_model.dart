@@ -23,10 +23,14 @@ class OrderItem {
     } else if (idVal != null) {
       id = int.tryParse(idVal.toString()) ?? 0;
     }
+    final productMap = json['product'];
+    var productName = json['productName']?.toString() ?? json['name']?.toString() ?? '';
+    if (productName.isEmpty && productMap is Map) {
+      productName = (productMap as Map)['name']?.toString() ?? '';
+    }
     return OrderItem(
       id: id,
-      productName:
-          json['productName']?.toString() ?? json['name']?.toString() ?? '',
+      productName: productName,
       quantity: (json['quantity'] as num?)?.toInt() ?? 1,
       unitPrice: _parseDouble(json['unitPrice'] ?? json['unit_price']),
       total: _parseDouble(json['total'] ?? json['totalPrice'] ?? json['total_price']),

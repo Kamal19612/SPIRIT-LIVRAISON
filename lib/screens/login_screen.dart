@@ -291,18 +291,6 @@ class _LoginScreenState extends State<LoginScreen> {
         borderRadius: BorderRadius.circular(10),
         border: Border.all(color: const Color(0xFFFDE68A)),
       ),
-      child: const Text(
-        'URL API boutique renseignée : la connexion utilise POST /api/auth/login sur le '
-        'backend Spring (JWT). Les comptes sont ceux du serveur, pas une base locale par défaut. '
-        'Pour le mode SQLite uniquement : retirez ou videz store_api_origin (Admin → Intégrations) '
-        'et utilisez un compte livreur créé dans l’app.',
-        style: TextStyle(
-          fontSize: 11.5,
-          height: 1.35,
-          color: Color(0xFF92400E),
-          fontWeight: FontWeight.w500,
-        ),
-      ),
     );
   }
 
