@@ -33,6 +33,7 @@ class LocalDatabase {
       onCreate: _onCreate,
       onUpgrade: _onUpgrade,
     );
+    await ensureDefaultLocalAdmin();
   }
 
   static String _hash(String password) =>
@@ -160,12 +161,13 @@ class LocalDatabase {
       {'key': 'contact_phone', 'value': ''},
       {'key': 'contact_email', 'value': ''},
       {'key': 'support_whatsapp', 'value': ''},
-      {'key': 'store_api_origin', 'value': AppConfig.defaultStoreApiOrigin},
+      {'key': AppConfig.storeApiOriginConfigKey, 'value': ''},
     ]) {
       batch.insert('app_config', entry,
           conflictAlgorithm: ConflictAlgorithm.ignore);
     }
     await batch.commit();
+    await _seedDefaultLocalAdmin(db);
   }
 
   Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
@@ -187,68 +189,78 @@ class LocalDatabase {
     if (oldVersion < 10) {
       await _migrateToV10(db);
     }
+    if (oldVersion < 11) {
+      await _seedDefaultLocalAdmin(db);
+    }
+    if (oldVersion < 12) {
+      await _migrateToV12ManualApiOrigin(db);
+    }
+  }
+
+  /// Supprime les URL « baked-in » du build ; la config backend devient 100 % manuelle.
+  Future<void> _migrateToV12ManualApiOrigin(Database db) async {
+    const key = AppConfig.storeApiOriginConfigKey;
+    final rows = await db.query('app_config', where: 'key = ?', whereArgs: [key], limit: 1);
+    if (rows.isEmpty) {
+      await db.insert('app_config', {'key': key, 'value': ''});
+      return;
+    }
+    final current = (rows.first['value'] as String?)?.trim() ?? '';
+    final normalized = normalizeHttpOrigin(current)?.toLowerCase() ?? '';
+    const legacyHosts = [
+      'spdelivery.socialracine.com',
+      'api.sucrestore.com',
+      'sucre-store.socialracine.com',
+    ];
+    final isLegacy = normalized.isEmpty ||
+        legacyHosts.any((host) => normalized.contains(host));
+    if (isLegacy) {
+      await db.update('app_config', {'value': ''}, where: 'key = ?', whereArgs: [key]);
+    }
+  }
+
+  /// Admin local pour l’app mobile (écran `/admin` sans backend Spring).
+  Future<void> ensureDefaultLocalAdmin() async {
+    await _seedDefaultLocalAdmin(db);
+  }
+
+  Future<void> _seedDefaultLocalAdmin(Database db) async {
+    const username = AppConfig.defaultLocalAdminUsername;
+    final hash = _hash(AppConfig.defaultLocalAdminPassword);
+    final existing = await db.query(
+      'users',
+      where: 'username = ?',
+      whereArgs: [username],
+      limit: 1,
+    );
+    if (existing.isEmpty) {
+      await db.insert('users', {
+        'username': username,
+        'password': hash,
+        'role': 'ADMIN',
+        'active': 1,
+      });
+      return;
+    }
+    await db.update(
+      'users',
+      {
+        'password': hash,
+        'role': 'ADMIN',
+        'active': 1,
+      },
+      where: 'username = ?',
+      whereArgs: [username],
+    );
   }
 
   /// No-op (réservé pour chaîne de versions déjà déployée).
   Future<void> _migrateToV9(Database db) async {}
 
-  /// Répare les installs ayant reçu l’URL `api.sucrestore.com` par erreur ; Spring est sur spdelivery.
-  Future<void> _migrateToV10(Database db) async {
-    const mistakenOrigin = 'https://api.sucrestore.com';
-    final rows = await db.query(
-      'app_config',
-      columns: ['value'],
-      where: 'key = ?',
-      whereArgs: ['store_api_origin'],
-      limit: 1,
-    );
-    if (rows.isEmpty) return;
-    final current = (rows.first['value'] as String?)?.trim() ?? '';
-    final n = normalizeHttpOrigin(current);
-    final wrong = normalizeHttpOrigin(mistakenOrigin);
-    if (n != null && wrong != null && n == wrong) {
-      await db.update(
-        'app_config',
-        {'value': AppConfig.defaultStoreApiOrigin},
-        where: 'key = ?',
-        whereArgs: ['store_api_origin'],
-      );
-    }
-  }
+  /// Historique v8/v10 : ne plus imposer d’URL (v12 nettoie les anciennes valeurs build).
+  Future<void> _migrateToV10(Database db) async {}
 
-  Future<void> _migrateToV8(Database db) async {
-    // Si l’installation existante a une ancienne URL (ou une URL vide), on la corrige.
-    // Sinon on ne casse pas la config déjà personnalisée.
-    final rows = await db.query(
-      'app_config',
-      columns: ['value'],
-      where: 'key = ?',
-      whereArgs: ['store_api_origin'],
-      limit: 1,
-    );
-    if (rows.isEmpty) {
-      await db.insert(
-        'app_config',
-        {'key': 'store_api_origin', 'value': AppConfig.defaultStoreApiOrigin},
-        conflictAlgorithm: ConflictAlgorithm.ignore,
-      );
-      return;
-    }
-
-    final current = (rows.first['value'] as String?)?.trim() ?? '';
-    final normalized = normalizeHttpOrigin(current) ?? '';
-    final lower = normalized.toLowerCase();
-    final shouldReplace =
-        lower.isEmpty || lower.contains('sucre-store.socialracine.com');
-    if (shouldReplace) {
-      await db.update(
-        'app_config',
-        {'value': AppConfig.defaultStoreApiOrigin},
-        where: 'key = ?',
-        whereArgs: ['store_api_origin'],
-      );
-    }
-  }
+  Future<void> _migrateToV8(Database db) async {}
 
   Future<void> _migrateToV4(Database db) async {
     final userCols = await db.rawQuery('PRAGMA table_info(users)');

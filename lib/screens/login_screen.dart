@@ -1,10 +1,9 @@
-import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import '../config/app_config.dart';
 import '../database/app_config_dao.dart';
 import '../providers/app_config_provider.dart';
 import '../providers/auth_provider.dart';
-import '../utils/url_normalize.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -14,34 +13,32 @@ class LoginScreen extends StatefulWidget {
 }
 
 class _LoginScreenState extends State<LoginScreen> {
-  final TextEditingController _usernameController = TextEditingController();
-  final TextEditingController _passwordController = TextEditingController();
-  bool    _obscurePassword = true;
+  final _formKey = GlobalKey<FormState>();
+  final _usernameController = TextEditingController();
+  final _passwordController = TextEditingController();
+  bool _obscurePassword = true;
   String? _localError;
-  /// `null` = chargement ; `false` = pas d’origine API normalisée → SQLite (comptes locaux).
-  bool? _storeApiConfigured;
+  String? _storeApiOrigin;
 
-  static const Color _gray300 = Color(0xFFD1D5DB);
-  static const Color _gray500 = Color(0xFF6B7280);
-  static const Color _gray700 = Color(0xFF374151);
-  static const Color _gray800 = Color(0xFF1F2937);
-  static const Color _secondary = Color(0xFF242021);
+  static const Color _surface = Color(0xFFF9FAFB);
+  static const Color _border = Color(0xFFE5E7EB);
+  static const Color _textMuted = Color(0xFF6B7280);
+  static const Color _textPrimary = Color(0xFF111827);
 
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) async {
-      final auth = context.read<AuthProvider>();
-      if (auth.isAuthenticated) {
-        _routeByRole(auth);
-        return;
-      }
-      final raw = await AppConfigDao.instance.getValue('store_api_origin');
-      final origin = normalizeHttpOrigin(raw ?? '');
-      final configured =
-          origin != null && origin.trim().isNotEmpty;
-      if (mounted) setState(() => _storeApiConfigured = configured);
-    });
+    WidgetsBinding.instance.addPostFrameCallback((_) => _bootstrap());
+  }
+
+  Future<void> _bootstrap() async {
+    final auth = context.read<AuthProvider>();
+    if (auth.isAuthenticated) {
+      _routeByRole(auth);
+      return;
+    }
+    final origin = await AppConfigDao.instance.getStoreApiOrigin();
+    if (mounted) setState(() => _storeApiOrigin = origin);
   }
 
   void _routeByRole(AuthProvider auth) {
@@ -50,16 +47,14 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 
   Future<void> _handleLogin() async {
-    if (_usernameController.text.trim().isEmpty ||
-        _passwordController.text.trim().isEmpty) {
-      setState(() => _localError = 'Veuillez remplir tous les champs');
-      return;
-    }
+    if (!(_formKey.currentState?.validate() ?? false)) return;
     setState(() => _localError = null);
 
     final auth = context.read<AuthProvider>();
     await auth.login(
-        _usernameController.text.trim(), _passwordController.text.trim());
+      _usernameController.text.trim(),
+      _passwordController.text.trim(),
+    );
 
     if (!mounted) return;
     if (auth.isAuthenticated) _routeByRole(auth);
@@ -74,72 +69,218 @@ class _LoginScreenState extends State<LoginScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final auth   = context.watch<AuthProvider>();
+    final auth = context.watch<AuthProvider>();
     final config = context.watch<AppConfigProvider>();
     final primary = config.primaryColor;
     final errorMsg = _localError ?? auth.errorMessage;
 
     return Scaffold(
-      backgroundColor: Color.alphaBlend(primary.withValues(alpha: 0.10), Colors.white),
+      backgroundColor: _surface,
       body: SafeArea(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.symmetric(horizontal: 24),
-          child: Column(
-            children: [
-              const SizedBox(height: 48),
-              Center(
-                child: ConstrainedBox(
-                  constraints: const BoxConstraints(maxWidth: 400),
-                  child: Container(
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      borderRadius: BorderRadius.circular(20),
-                      border: Border.all(color: const Color(0xFFF3F4F6)),
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.black.withValues(alpha: 0.10),
-                          offset: const Offset(0, 8),
-                          blurRadius: 24,
-                        ),
-                      ],
-                    ),
-                    padding: const EdgeInsets.all(32),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        _buildLogoSection(config),
-                        const SizedBox(height: 24),
-                        if (errorMsg != null) ...[
-                          _buildErrorBlock(errorMsg),
-                          const SizedBox(height: 16),
-                        ],
-                        _buildLabel('Email ou identifiant'),
-                        const SizedBox(height: 6),
-                        _buildTextField(
-                          controller: _usernameController,
-                          hint: 'Identifiant Spring Boot ou compte local',
-                          icon: Icons.person_outline,
-                        ),
-                        const SizedBox(height: 16),
-                        _buildLabel('Mot de passe'),
-                        const SizedBox(height: 6),
-                        _buildPasswordField(),
-                        if (_storeApiConfigured == false) ...[
-                          const SizedBox(height: 14),
-                          _buildLocalBootstrapHint(),
-                        ],
-                        if (_storeApiConfigured == true) ...[
-                          const SizedBox(height: 14),
-                          _buildRemoteApiHint(),
-                        ],
-                        const SizedBox(height: 20),
-                        _buildSubmitButton(auth.isLoading, primary),
-                      ],
+        child: Center(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 32),
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 420),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  _buildHeader(config, primary),
+                  const SizedBox(height: 28),
+                  _buildConnectionBanner(),
+                  const SizedBox(height: 20),
+                  _buildFormCard(
+                    auth: auth,
+                    primary: primary,
+                    errorMsg: errorMsg,
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildHeader(AppConfigProvider config, Color primary) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Container(
+              width: 44,
+              height: 44,
+              decoration: BoxDecoration(
+                color: primary.withValues(alpha: 0.14),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Icon(Icons.local_shipping_outlined, color: primary, size: 26),
+            ),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    config.appName,
+                    style: const TextStyle(
+                      fontSize: 22,
+                      fontWeight: FontWeight.w700,
+                      color: _textPrimary,
+                      height: 1.2,
                     ),
                   ),
-                ),
+                  const SizedBox(height: 2),
+                  const Text(
+                    'Connectez-vous pour continuer',
+                    style: TextStyle(fontSize: 14, color: _textMuted),
+                  ),
+                ],
               ),
-              const SizedBox(height: 48),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  Widget _buildConnectionBanner() {
+    if (_storeApiOrigin == null) {
+      return const SizedBox(
+        height: 20,
+        child: Center(
+          child: SizedBox(
+            width: 18,
+            height: 18,
+            child: CircularProgressIndicator(strokeWidth: 2),
+          ),
+        ),
+      );
+    }
+
+    final hasBackend = _storeApiOrigin!.isNotEmpty;
+    final bg = hasBackend ? const Color(0xFFEFF6FF) : const Color(0xFFF0FDF4);
+    final border = hasBackend ? const Color(0xFFBFDBFE) : const Color(0xFFBBF7D0);
+    final fg = hasBackend ? const Color(0xFF1E40AF) : const Color(0xFF166534);
+    final icon = hasBackend ? Icons.cloud_done_outlined : Icons.storage_outlined;
+
+    final text = hasBackend
+        ? 'Backend : ${_storeApiOrigin!}\nConnexion JWT (livreur ou manager serveur).'
+        : 'Mode local — admin : ${AppConfig.defaultLocalAdminUsername}. '
+            'URL STORE-ALL : Admin → Paramètres → Intégrations.';
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      decoration: BoxDecoration(
+        color: bg,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: border),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(icon, size: 20, color: fg),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              text,
+              style: TextStyle(fontSize: 12, height: 1.4, color: fg, fontWeight: FontWeight.w500),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildFormCard({
+    required AuthProvider auth,
+    required Color primary,
+    required String? errorMsg,
+  }) {
+    return Material(
+      color: Colors.white,
+      elevation: 0,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(16),
+        side: const BorderSide(color: _border),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(24, 24, 24, 28),
+        child: Form(
+          key: _formKey,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              if (errorMsg != null) ...[
+                _buildErrorBlock(errorMsg),
+                const SizedBox(height: 16),
+              ],
+              TextFormField(
+                controller: _usernameController,
+                textInputAction: TextInputAction.next,
+                autocorrect: false,
+                decoration: _fieldDecoration(
+                  label: 'Identifiant',
+                  hint: 'Email ou nom d’utilisateur',
+                  icon: Icons.person_outline,
+                ),
+                validator: (v) =>
+                    (v == null || v.trim().isEmpty) ? 'Identifiant requis' : null,
+              ),
+              const SizedBox(height: 16),
+              TextFormField(
+                controller: _passwordController,
+                obscureText: _obscurePassword,
+                textInputAction: TextInputAction.done,
+                onFieldSubmitted: (_) {
+                  if (!auth.isLoading) _handleLogin();
+                },
+                decoration: _fieldDecoration(
+                  label: 'Mot de passe',
+                  hint: '••••••••',
+                  icon: Icons.lock_outline,
+                  suffix: IconButton(
+                    icon: Icon(
+                      _obscurePassword
+                          ? Icons.visibility_outlined
+                          : Icons.visibility_off_outlined,
+                      size: 20,
+                      color: _textMuted,
+                    ),
+                    onPressed: () =>
+                        setState(() => _obscurePassword = !_obscurePassword),
+                  ),
+                ),
+                validator: (v) =>
+                    (v == null || v.isEmpty) ? 'Mot de passe requis' : null,
+              ),
+              const SizedBox(height: 24),
+              FilledButton(
+                onPressed: auth.isLoading ? null : _handleLogin,
+                style: FilledButton.styleFrom(
+                  backgroundColor: primary,
+                  foregroundColor: Colors.white,
+                  minimumSize: const Size.fromHeight(52),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                ),
+                child: auth.isLoading
+                    ? const SizedBox(
+                        width: 22,
+                        height: 22,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2.5,
+                          color: Colors.white,
+                        ),
+                      )
+                    : const Text(
+                        'Se connecter',
+                        style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+                      ),
+              ),
             ],
           ),
         ),
@@ -147,173 +288,32 @@ class _LoginScreenState extends State<LoginScreen> {
     );
   }
 
-  Widget _buildLogoSection(AppConfigProvider config) {
-    return Column(
-      children: [
-        SizedBox(
-          width: 100,
-          height: 100,
-          child: config.logoUrl.isNotEmpty
-              ? ClipOval(
-                  child: CachedNetworkImage(
-                    imageUrl: config.logoUrl,
-                    fit: BoxFit.cover,
-                    errorWidget: (ctx, url, err) => _defaultAvatar(config),
-                  ),
-                )
-              : _defaultAvatar(config),
-        ),
-        const SizedBox(height: 12),
-        Text(
-          config.appName.toUpperCase(),
-          style: const TextStyle(
-            fontSize: 24,
-            fontWeight: FontWeight.w800,
-            color: _gray800,
-            letterSpacing: 1,
-          ),
-        ),
-        const SizedBox(height: 4),
-        const Text(
-          'Connexion',
-          style: TextStyle(
-            fontSize: 13,
-            color: _gray500,
-            fontWeight: FontWeight.w500,
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _defaultAvatar(AppConfigProvider config) => Container(
-        decoration: BoxDecoration(
-          color: config.primaryColor.withValues(alpha: 0.12),
-          shape: BoxShape.circle,
-        ),
-        child: Icon(
-          Icons.local_shipping,
-          size: 56,
-          color: config.primaryColor,
-        ),
-      );
-
-  Widget _buildLabel(String text) => Text(
-        text,
-        style: const TextStyle(
-            fontSize: 13, fontWeight: FontWeight.w600, color: _gray700),
-      );
-
-  Widget _buildTextField({
-    required TextEditingController controller,
+  InputDecoration _fieldDecoration({
+    required String label,
     required String hint,
     required IconData icon,
+    Widget? suffix,
   }) {
-    return Container(
-      constraints: const BoxConstraints(minHeight: 50),
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: _gray300, width: 1.5),
+    return InputDecoration(
+      labelText: label,
+      hintText: hint,
+      prefixIcon: Icon(icon, size: 20, color: _textMuted),
+      suffixIcon: suffix,
+      filled: true,
+      fillColor: _surface,
+      border: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(12),
+        borderSide: const BorderSide(color: _border),
       ),
-      padding: const EdgeInsets.symmetric(horizontal: 12),
-      child: Row(
-        children: [
-          Icon(icon, size: 18, color: _gray500),
-          const SizedBox(width: 8),
-          Expanded(
-            child: TextField(
-              controller: controller,
-              textCapitalization: TextCapitalization.none,
-              style: const TextStyle(fontSize: 15, color: _secondary),
-              decoration: InputDecoration(
-                border: InputBorder.none,
-                hintText: hint,
-                hintStyle: const TextStyle(color: _gray300),
-                isDense: true,
-                contentPadding: const EdgeInsets.symmetric(vertical: 14),
-              ),
-            ),
-          ),
-        ],
+      enabledBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(12),
+        borderSide: const BorderSide(color: _border),
       ),
-    );
-  }
-
-  Widget _buildPasswordField() {
-    return Container(
-      constraints: const BoxConstraints(minHeight: 50),
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: _gray300, width: 1.5),
-      ),
-      padding: const EdgeInsets.symmetric(horizontal: 12),
-      child: Row(
-        children: [
-          const Icon(Icons.lock_outline, size: 18, color: _gray500),
-          const SizedBox(width: 8),
-          Expanded(
-            child: TextField(
-              controller: _passwordController,
-              obscureText: _obscurePassword,
-              style: const TextStyle(fontSize: 15, color: _secondary),
-              decoration: const InputDecoration(
-                border: InputBorder.none,
-                hintText: '••••••••',
-                hintStyle: TextStyle(color: _gray300),
-                isDense: true,
-                contentPadding: EdgeInsets.symmetric(vertical: 14),
-              ),
-            ),
-          ),
-          GestureDetector(
-            onTap: () =>
-                setState(() => _obscurePassword = !_obscurePassword),
-            child: Icon(
-              _obscurePassword
-                  ? Icons.visibility_outlined
-                  : Icons.visibility_off_outlined,
-              size: 18,
-              color: _gray500,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  /// Affiché lorsque [AuthService] utilise `POST …/api/auth/login` (origine normalisée non vide).
-  Widget _buildRemoteApiHint() {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: const Color(0xFFFFFBEB),
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: const Color(0xFFFDE68A)),
-      ),
-    );
-  }
-
-  /// Affiché tant que l’URL API boutique n’est pas enregistrée (premier déploiement).
-  Widget _buildLocalBootstrapHint() {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: const Color(0xFFF0FDF4),
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: const Color(0xFFBBF7D0)),
-      ),
-      child: const Text(
-        'Aucune URL API boutique valide : connexion SQLite uniquement (comptes créés '
-        'depuis l’écran Admin). Pour utiliser Spring Boot (POST /api/auth/login), '
-        'renseignez l’URL du backend. En cas de blocage, effacer les données de l’app '
-        'réapplique l’URL par défaut du build.',
-        style: TextStyle(
-          fontSize: 11.5,
-          height: 1.35,
-          color: Color(0xFF166534),
-          fontWeight: FontWeight.w500,
+      focusedBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(12),
+        borderSide: BorderSide(
+          color: context.read<AppConfigProvider>().primaryColor,
+          width: 1.5,
         ),
       ),
     );
@@ -328,56 +328,22 @@ class _LoginScreenState extends State<LoginScreen> {
         border: Border.all(color: const Color(0xFFFECACA)),
       ),
       child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Icon(Icons.error_outline, color: Color(0xFFDC2626), size: 16),
+          const Icon(Icons.error_outline, color: Color(0xFFDC2626), size: 18),
           const SizedBox(width: 8),
           Expanded(
-            child: Text(message,
-                style: const TextStyle(
-                    color: Color(0xFFDC2626),
-                    fontSize: 13,
-                    fontWeight: FontWeight.w500)),
+            child: Text(
+              message,
+              style: const TextStyle(
+                color: Color(0xFFDC2626),
+                fontSize: 13,
+                fontWeight: FontWeight.w500,
+                height: 1.35,
+              ),
+            ),
           ),
         ],
-      ),
-    );
-  }
-
-  Widget _buildSubmitButton(bool isLoading, Color primary) {
-    return Opacity(
-      opacity: isLoading ? 0.6 : 1.0,
-      child: GestureDetector(
-        onTap: isLoading ? null : _handleLogin,
-        child: Container(
-          constraints: const BoxConstraints(minHeight: 52),
-          decoration: BoxDecoration(
-            color: primary,
-            borderRadius: BorderRadius.circular(12),
-            boxShadow: [
-              BoxShadow(
-                color: primary.withValues(alpha: 0.35),
-                offset: const Offset(0, 4),
-                blurRadius: 8,
-              ),
-            ],
-          ),
-          alignment: Alignment.center,
-          padding: const EdgeInsets.symmetric(vertical: 15),
-          child: isLoading
-              ? const SizedBox(
-                  width: 22,
-                  height: 22,
-                  child: CircularProgressIndicator(
-                      strokeWidth: 2.5, color: Colors.white),
-                )
-              : const Text(
-                  'Se connecter',
-                  style: TextStyle(
-                      color: Colors.white,
-                      fontSize: 16,
-                      fontWeight: FontWeight.w700),
-                ),
-        ),
       ),
     );
   }

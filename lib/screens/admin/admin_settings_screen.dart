@@ -6,7 +6,9 @@ import '../../models/external_source_model.dart';
 import '../../database/app_config_dao.dart';
 import '../../providers/admin_provider.dart';
 import '../../providers/app_config_provider.dart';
+import '../../config/app_config.dart';
 import '../../services/app_config_service.dart';
+import '../../services/backend_connection_service.dart';
 import '../../services/polling_service.dart';
 import '../../services/external_source_secrets.dart';
 import '../../utils/url_normalize.dart';
@@ -473,6 +475,8 @@ class _ConnectionCardState extends State<_ConnectionCard> {
 
   bool _loaded = false;
   bool _isSaving = false;
+  bool _isTesting = false;
+  String? _testMessage;
 
   @override
   void didChangeDependencies() {
@@ -480,7 +484,7 @@ class _ConnectionCardState extends State<_ConnectionCard> {
     if (_loaded) return;
     _loaded = true;
 
-    AppConfigDao.instance.getValue('store_api_origin').then((v) {
+    AppConfigDao.instance.getValue(AppConfig.storeApiOriginConfigKey).then((v) {
       if (mounted) setState(() => _storeOriginCtrl.text = v ?? '');
     });
     AppConfigDao.instance.getValue('store_source_platform').then((v) {
@@ -499,21 +503,55 @@ class _ConnectionCardState extends State<_ConnectionCard> {
     if (_isSaving) return;
     setState(() => _isSaving = true);
     try {
-      final storeOrigin = normalizeBackendOrigin(_storeOriginCtrl.text) ?? '';
+      final raw = _storeOriginCtrl.text.trim();
+      String storeOrigin = '';
+      if (raw.isNotEmpty) {
+        final normalized = normalizeBackendOrigin(raw);
+        if (normalized == null) {
+          if (!mounted) return;
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('URL invalide (http:// ou https:// requis).'),
+              behavior: SnackBarBehavior.floating,
+            ),
+          );
+          return;
+        }
+        storeOrigin = normalized;
+      }
       await AppConfigService.instance.save({
-        'store_api_origin': storeOrigin,
+        AppConfig.storeApiOriginConfigKey: storeOrigin,
         'store_source_platform': _storePlatformCtrl.text.trim(),
       });
 
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Configuration sauvegardée.'),
+        SnackBar(
+          content: Text(
+            storeOrigin.isEmpty
+                ? 'URL effacée — mode local uniquement. Reconnectez-vous après avoir saisi une URL.'
+                : 'Backend enregistré : $storeOrigin. Reconnectez les livreurs pour obtenir un nouveau JWT.',
+          ),
           behavior: SnackBarBehavior.floating,
         ),
       );
     } finally {
       if (mounted) setState(() => _isSaving = false);
+    }
+  }
+
+  Future<void> _testConnection() async {
+    if (_isTesting) return;
+    setState(() {
+      _isTesting = true;
+      _testMessage = null;
+    });
+    try {
+      final msg = await BackendConnectionService.instance
+          .testOrigin(_storeOriginCtrl.text.trim());
+      if (mounted) setState(() => _testMessage = msg);
+    } finally {
+      if (mounted) setState(() => _isTesting = false);
     }
   }
 
@@ -589,47 +627,88 @@ class _ConnectionCardState extends State<_ConnectionCard> {
               ],
             ),
             const SizedBox(height: 8),
-            const Text(
-              'Un même projet Spirit peut recevoir des commandes de plusieurs boutiques : '
-              'une URL Supabase partagée, une API « boutique par défaut » pour la connexion livreur, '
-              'et une fiche par boutique ci‑dessous (webhook ou API REST).',
-              style: TextStyle(fontSize: 11.5, color: Color(0xFF6B7280), height: 1.4),
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: const Color(0xFFFEF3C7),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: const Color(0xFFFCD34D)),
+              ),
+              child: const Text(
+                'Configuration manuelle obligatoire : aucune URL n’est préremplie par l’application. '
+                'Saisissez l’adresse de chaque backend (STORE-ALL, autre Spring Boot, etc.) pour que '
+                'les livreurs récupèrent commandes, statuts et notifications de livraison.',
+                style: TextStyle(fontSize: 11.5, color: Color(0xFF92400E), height: 1.4),
+              ),
             ),
             const SizedBox(height: 14),
             const Divider(height: 1),
-            sectionTitle('1', 'Connexion & temps réel — Spring Boot'),
+            sectionTitle('1', 'Backend principal (livraison + login JWT)'),
             const Text(
-              'Les livreurs se connectent via l’API Spring Boot (JWT). '
-              'Les notifications temps réel arrivent via FCM (recommandé) ou rafraîchissement manuel.',
-              style: TextStyle(fontSize: 11, color: Color(0xFF6B7280), height: 1.35),
-            ),
-            const SizedBox(height: 10),
-            const SizedBox(height: 16),
-            const Divider(height: 1),
-            sectionTitle('2', 'API livreur — boutique par défaut'),
-            const Text(
-              'URL du backend boutique (sans /api) et identifiant sourcePlatform pour le JWT livreur. '
-              'Pour une deuxième boutique avec une autre URL API, utilisez plutôt une source « REST Polling ».',
+              'URL de l’API Spring, sans suffixe /api. Exemples : '
+              'http://10.0.2.2:8085 (émulateur Android → machine hôte), '
+              'http://192.168.x.x:8085, https://mon-serveur.com. '
+              'Laissez vide pour n’utiliser que le mode local (admin SQLite).',
               style: TextStyle(fontSize: 11, color: Color(0xFF6B7280), height: 1.35),
             ),
             const SizedBox(height: 10),
             _SettingField(
               ctrl: _storeOriginCtrl,
-              label: 'URL origine API boutique',
+              label: 'URL du backend',
               icon: Icons.cloud_sync_outlined,
-              hint: 'https://boutique.example.com',
+              hint: 'http://192.168.1.10:8085',
               keyboardType: TextInputType.url,
             ),
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                OutlinedButton.icon(
+                  onPressed: _isTesting ? null : _testConnection,
+                  icon: _isTesting
+                      ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.wifi_tethering, size: 18),
+                  label: Text(_isTesting ? 'Test…' : 'Tester la connexion'),
+                ),
+                const SizedBox(width: 8),
+                TextButton.icon(
+                  onPressed: _isSaving
+                      ? null
+                      : () => setState(() {
+                            _storeOriginCtrl.clear();
+                            _testMessage = null;
+                          }),
+                  icon: const Icon(Icons.clear, size: 18),
+                  label: const Text('Effacer'),
+                ),
+              ],
+            ),
+            if (_testMessage != null) ...[
+              const SizedBox(height: 8),
+              Text(
+                _testMessage!,
+                style: TextStyle(
+                  fontSize: 11,
+                  color: _testMessage!.startsWith('Connexion OK')
+                      ? const Color(0xFF16A34A)
+                      : const Color(0xFFDC2626),
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ],
             const SizedBox(height: 10),
             _SettingField(
               ctrl: _storePlatformCtrl,
-              label: 'SourcePlatform (JWT / commandes API)',
+              label: 'Code boutique (optionnel, filtre sync)',
               icon: Icons.hub_outlined,
-              hint: 'ex. sucre_store — aligné sur le backend',
+              hint: 'ex. spirit — si le backend l’exige',
             ),
             const SizedBox(height: 16),
             const Divider(height: 1),
-            sectionTitle('3', 'Autres boutiques'),
+            sectionTitle('2', 'Autres backends / boutiques'),
             const Text(
               'Chaque boutique supplémentaire = une entrée dans la liste (webhook recommandé). '
               'L’identifiant « source » du payload doit correspondre à la source enregistrée ici.',

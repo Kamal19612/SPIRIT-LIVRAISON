@@ -1,4 +1,7 @@
 import 'package:sqflite/sqflite.dart';
+
+import '../config/app_config.dart';
+import '../utils/url_normalize.dart';
 import 'local_database.dart';
 
 class AppConfigDao {
@@ -19,6 +22,13 @@ class AppConfigDao {
       {'key': key, 'value': value},
       conflictAlgorithm: ConflictAlgorithm.replace,
     );
+  }
+
+  /// URL backend saisie manuellement (sans `/api`). `null` si non configurée.
+  Future<String?> getStoreApiOrigin() async {
+    final raw = await getValue(AppConfig.storeApiOriginConfigKey);
+    if (raw == null || raw.trim().isEmpty) return null;
+    return normalizeBackendOrigin(raw);
   }
 
   Future<Map<String, String>> getAll() async {

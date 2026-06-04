@@ -1,10 +1,14 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../providers/auth_provider.dart';
 import '../providers/orders_provider.dart';
-import '../services/location_service.dart';
-import '../widgets/order_card.dart';
+import '../services/delivery_sse_service.dart';
 import '../services/fcm_service.dart';
+import '../services/location_service.dart';
+import '../services/notification_service.dart';
+import '../widgets/order_card.dart';
 
 class DashboardScreen extends StatefulWidget {
   const DashboardScreen({super.key});
@@ -13,11 +17,14 @@ class DashboardScreen extends StatefulWidget {
   State<DashboardScreen> createState() => _DashboardScreenState();
 }
 
-class _DashboardScreenState extends State<DashboardScreen> {
+class _DashboardScreenState extends State<DashboardScreen>
+    with WidgetsBindingObserver {
   int _selectedTab = 0;
   LocationService? _locationService;
+  Timer? _pollTimer;
+  bool _appInForeground = true;
 
-  static const Color _gray50  = Color(0xFFF9FAFB);
+  static const Color _gray50 = Color(0xFFF9FAFB);
   static const Color _gray100 = Color(0xFFF3F4F6);
   static const Color _gray200 = Color(0xFFE5E7EB);
   static const Color _gray500 = Color(0xFF6B7280);
@@ -26,26 +33,84 @@ class _DashboardScreenState extends State<DashboardScreen> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     WidgetsBinding.instance.addPostFrameCallback((_) => _init());
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    _appInForeground = state == AppLifecycleState.resumed;
   }
 
   Future<void> _init() async {
     if (!mounted) return;
-    context.read<OrdersProvider>().init();
+    final ordersProvider = context.read<OrdersProvider>();
+    await ordersProvider.init();
+    if (!mounted) return;
 
     final auth = context.read<AuthProvider>();
     if (auth.user != null) {
-      // Écoute des événements FCM (refresh commandes en foreground).
-      FcmService.instance.listenForeground(onEvent: (type) {
-        if (!mounted) return;
-        if (type == 'new_delivery' || type == 'order_status') {
-          context.read<OrdersProvider>().refresh();
-        }
+      FcmService.instance.listenForeground(onEvent: _onFcmEvent);
+
+      unawaited(
+        DeliverySseService.instance.start(onEvent: _onSseEvent),
+      );
+
+      _pollTimer = Timer.periodic(const Duration(seconds: 5), (_) {
+        if (!_appInForeground || !mounted) return;
+        ordersProvider.refresh(silent: true);
       });
+
       _locationService = context.read<LocationService>();
       await _locationService!.startTracking(auth.user!.id);
+      if (!mounted) return;
       _locationService!.addListener(_onLocationChanged);
     }
+  }
+
+  void _onFcmEvent(String type, Map<String, dynamic> data) {
+    _handleRealtimeEvent(type, data);
+  }
+
+  void _onSseEvent(String event, Map<String, dynamic> data) {
+    _handleRealtimeEvent(event, data);
+  }
+
+  void _handleRealtimeEvent(String type, Map<String, dynamic> data) {
+    if (!mounted) return;
+
+    if (type == 'new_delivery') {
+      final orderNumber = data['orderNumber']?.toString() ?? '';
+      final deliveryType = data['deliveryType']?.toString();
+      final label = _typeLabel(deliveryType);
+      _showSnackbar(
+        label.isEmpty
+            ? '🚚 Nouvelle livraison #$orderNumber'
+            : '🚚 Nouvelle livraison #$orderNumber · $label',
+        isSuccess: true,
+      );
+      if (!_appInForeground) {
+        unawaited(
+          NotificationService.instance.showNewDeliveryNotification(
+            orderNumber: orderNumber.isNotEmpty ? orderNumber : '#',
+            deliveryType: deliveryType,
+          ),
+        );
+      }
+      context.read<OrdersProvider>().refresh(silent: true);
+      return;
+    }
+
+    if (type == 'order_status') {
+      context.read<OrdersProvider>().refresh(silent: true);
+    }
+  }
+
+  String _typeLabel(String? deliveryType) {
+    final t = (deliveryType ?? '').toUpperCase();
+    if (t == 'EXPRESS') return '⚡ Express';
+    if (t == 'PROGRAMMER') return '🕐 Programmée';
+    return '';
   }
 
   void _onLocationChanged() {
@@ -58,36 +123,48 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _pollTimer?.cancel();
+    unawaited(DeliverySseService.instance.stop());
     _locationService?.removeListener(_onLocationChanged);
     _locationService?.stopTracking();
     super.dispose();
   }
 
   void _onTabChanged(int index) {
+    if (!mounted) return;
     setState(() => _selectedTab = index);
     context.read<OrdersProvider>().loadOrders(
-        index == 0 ? 'available' : 'my-orders');
+      index == 0 ? 'available' : 'my-orders',
+    );
   }
 
   Future<void> _handleLogout() async {
+    final auth = context.read<AuthProvider>();
+    _pollTimer?.cancel();
+    await DeliverySseService.instance.stop();
     _locationService?.stopTracking();
-    await context.read<AuthProvider>().logout();
+    await auth.logout();
     if (!mounted) return;
     Navigator.pushReplacementNamed(context, '/login');
   }
 
-  void _showSnackbar(String message) {
+  void _showSnackbar(String message, {bool isSuccess = false}) {
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(message), behavior: SnackBarBehavior.floating),
+      SnackBar(
+        content: Text(message),
+        behavior: SnackBarBehavior.floating,
+        backgroundColor: isSuccess ? const Color(0xFF16A34A) : null,
+      ),
     );
   }
 
   @override
   Widget build(BuildContext context) {
-    final orders   = context.watch<OrdersProvider>();
-    final auth     = context.watch<AuthProvider>();
+    final orders = context.watch<OrdersProvider>();
+    final auth = context.watch<AuthProvider>();
     final location = context.watch<LocationService>();
-    final primary  = Theme.of(context).colorScheme.primary;
+    final primary = Theme.of(context).colorScheme.primary;
 
     return Scaffold(
       backgroundColor: _gray50,
@@ -123,7 +200,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               const Text(
-                'Bonjour',
+                'Bonjour 👋',
                 style: TextStyle(
                   fontSize: 22,
                   fontWeight: FontWeight.w800,
@@ -131,16 +208,16 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 ),
               ),
               Text(
-                auth.user?.username ?? '',
-                style: const TextStyle(
-                    fontSize: 13,
-                    fontWeight: FontWeight.w500,
-                    color: _gray500),
+                'Prêt pour la route ?',
+                style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w500,
+                  color: _gray500.withValues(alpha: 0.9),
+                ),
               ),
             ],
           ),
         ),
-        // GPS status badge
         Container(
           padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
           decoration: BoxDecoration(
@@ -185,7 +262,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
           icon: Icons.refresh,
           isActive: orders.isRefreshing,
           primary: primary,
-          onTap: orders.refresh,
+          onTap: () => orders.refresh(),
         ),
         const SizedBox(width: 8),
         _buildIconButton(
@@ -221,8 +298,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
             ),
           ],
         ),
-        child: Icon(icon, size: 19,
-            color: isActive ? primary : _gray500),
+        child: Icon(
+          icon,
+          size: 19,
+          color: isActive ? primary : _gray500,
+        ),
       ),
     );
   }
@@ -248,7 +328,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
       child: Row(
         children: [
           _buildTab('Disponibles', 0, counts[0]),
-          _buildTab('Mes Courses',  1, counts[1]),
+          _buildTab('Mes Courses', 1, counts[1]),
         ],
       ),
     );
@@ -307,17 +387,17 @@ class _DashboardScreenState extends State<DashboardScreen> {
   Widget _buildOrderList(OrdersProvider orders, Color primary) {
     if (orders.isLoading) return _buildSkeleton();
 
-    final list = _selectedTab == 0
-        ? orders.availableOrders
-        : orders.myOrders;
+    final list =
+        _selectedTab == 0 ? orders.availableOrders : orders.myOrders;
 
     if (list.isEmpty) return _buildEmptyState();
 
     final mode = _selectedTab == 0 ? 'available' : 'my-orders';
 
     return RefreshIndicator(
-      onRefresh: orders.refresh,
+      onRefresh: () => orders.refresh(),
       child: ListView.builder(
+        physics: const AlwaysScrollableScrollPhysics(),
         padding: const EdgeInsets.only(bottom: 32),
         itemCount: list.length,
         itemBuilder: (_, i) {
@@ -327,8 +407,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
             mode: mode,
             onClaim: (id) async {
               try {
-                await orders.claimOrder(id);
-                if (mounted) _showSnackbar('Course acceptée !');
+                await context.read<OrdersProvider>().claimOrder(id);
+                if (!mounted) return;
+                setState(() => _selectedTab = 1);
+                _showSnackbar('Commande prise en charge !', isSuccess: true);
               } catch (e) {
                 final msg = e.toString().replaceFirst('Exception: ', '');
                 if (mounted) _showSnackbar(msg);
@@ -336,11 +418,14 @@ class _DashboardScreenState extends State<DashboardScreen> {
             },
             onComplete: (id, code) async {
               try {
-                await orders.completeDelivery(id, code);
-                if (mounted) _showSnackbar('Livraison confirmée !');
+                await context.read<OrdersProvider>().completeDelivery(id, code);
+                if (mounted) {
+                  _showSnackbar('Livraison validée ! 🎉', isSuccess: true);
+                }
               } catch (e) {
-                throw Exception(
-                    e.toString().replaceFirst('Exception: ', ''));
+                final msg = e.toString().replaceFirst('Exception: ', '');
+                if (mounted) _showSnackbar(msg);
+                rethrow;
               }
             },
           );
@@ -366,6 +451,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 
   Widget _buildEmptyState() {
+    final available = _selectedTab == 0;
     return Center(
       child: Padding(
         padding: const EdgeInsets.symmetric(vertical: 64, horizontal: 32),
@@ -380,22 +466,28 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 borderRadius: BorderRadius.circular(40),
                 border: Border.all(color: _gray100, width: 2),
               ),
-              child: const Icon(Icons.directions_car_outlined,
-                  size: 48, color: Color(0xFFE5E7EB)),
+              child: Icon(
+                available ? Icons.local_shipping_outlined : Icons.check_circle_outline,
+                size: 48,
+                color: const Color(0xFFE5E7EB),
+              ),
             ),
             const SizedBox(height: 12),
-            const Text(
-              'Aucune commande',
-              style: TextStyle(
-                  fontSize: 17,
-                  fontWeight: FontWeight.w700,
-                  color: _gray900),
+            Text(
+              available ? 'Aucune commande' : 'Vous êtes libre !',
+              style: const TextStyle(
+                fontSize: 17,
+                fontWeight: FontWeight.w700,
+                color: _gray900,
+              ),
             ),
             const SizedBox(height: 6),
-            const Text(
-              "Pas de commandes disponibles pour le moment.\nTirez vers le bas pour actualiser.",
+            Text(
+              available
+                  ? 'Revenez plus tard pour de nouvelles courses.'
+                  : "Prenez une commande dans l'onglet « Disponibles ».",
               textAlign: TextAlign.center,
-              style: TextStyle(fontSize: 13, color: _gray500, height: 1.5),
+              style: const TextStyle(fontSize: 13, color: _gray500, height: 1.5),
             ),
           ],
         ),

@@ -80,6 +80,42 @@ class NotificationService {
 
   // ── Affichage d'une notification locale ──────────────────────────────────
 
+  String _deliveryTypeLabel(String? deliveryType) {
+    final t = (deliveryType ?? '').toUpperCase();
+    if (t == 'EXPRESS') return '⚡ Express';
+    if (t == 'PROGRAMMER') return '🕐 Programmée';
+    return '';
+  }
+
+  /// Nouvelle livraison disponible (SSE / FCM, aligné PWA).
+  Future<void> showNewDeliveryNotification({
+    required String orderNumber,
+    String? deliveryType,
+  }) async {
+    if (!_initialized) return;
+    final label = _deliveryTypeLabel(deliveryType);
+    final body = label.isEmpty
+        ? 'Commande #$orderNumber'
+        : 'Commande #$orderNumber · $label';
+    try {
+      const androidDetails = AndroidNotificationDetails(
+        'delivery_orders',
+        'Nouvelles commandes',
+        channelDescription: 'Notifications pour les nouvelles commandes de livraison',
+        importance: Importance.high,
+        priority: Priority.high,
+      );
+      const iosDetails = DarwinNotificationDetails();
+      const details = NotificationDetails(android: androidDetails, iOS: iosDetails);
+      await _plugin.show(
+        _notifId++,
+        '🚚 Nouvelle livraison disponible',
+        body,
+        details,
+      );
+    } catch (_) {}
+  }
+
   /// Affiche une notification locale "Nouvelle commande".
   /// [webhookPayload] : si fourni, sera encodé dans le payload de la notification
   /// afin que [_onNotificationTap] puisse déclencher le webhook handler au tap.

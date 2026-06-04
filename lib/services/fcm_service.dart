@@ -66,11 +66,13 @@ class FcmService {
   }
 
   /// Écoute les messages FCM en foreground et peut déclencher un refresh commandes.
-  void listenForeground({required void Function(String type) onEvent}) {
+  void listenForeground({
+    required void Function(String type, Map<String, dynamic> data) onEvent,
+  }) {
     FirebaseMessaging.onMessage.listen((RemoteMessage msg) {
       final type = (msg.data['type'] ?? '').toString();
       if (type.isEmpty) return;
-      onEvent(type);
+      onEvent(type, Map<String, dynamic>.from(msg.data));
     });
   }
 }

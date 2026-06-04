@@ -8,6 +8,7 @@ class OrdersProvider extends ChangeNotifier {
   List<Order> _myOrders        = [];
   bool        _isLoading       = false;
   bool        _isRefreshing    = false;
+  bool        _refreshInFlight = false;
   String?     _error;
   double?     _driverLat;
   double?     _driverLng;
@@ -97,30 +98,48 @@ class OrdersProvider extends ChangeNotifier {
 
   // ── Actualisation ──────────────────────────────────────────────────────────
 
-  Future<void> refresh() async {
-    if (_isRefreshing) return;
-    _isRefreshing = true;
-    _error        = null;
-    notifyListeners();
+  /// [silent] : polling / SSE — pas de spinner plein écran (aligné PWA).
+  Future<void> refresh({bool silent = false}) async {
+    if (_refreshInFlight) return;
+    _refreshInFlight = true;
+    if (!silent) {
+      _isRefreshing = true;
+      _error = null;
+      notifyListeners();
+    }
     try {
-      _availableOrders = _sortByDistance(await OrderService.instance.fetchAvailableOrders());
-      _myOrders        = await OrderService.instance.fetchMyOrders();
+      _availableOrders =
+          _sortByDistance(await OrderService.instance.fetchAvailableOrders());
+      _myOrders = await OrderService.instance.fetchMyOrders();
+      if (silent) _error = null;
     } catch (e) {
-      _error = e.toString().replaceFirst('Exception: ', '');
+      if (!silent) {
+        _error = e.toString().replaceFirst('Exception: ', '');
+      }
     } finally {
-      _isRefreshing = false;
+      _refreshInFlight = false;
+      if (!silent) _isRefreshing = false;
       notifyListeners();
     }
   }
 
   // ── Actions ────────────────────────────────────────────────────────────────
 
-  Future<void> claimOrder(int id) async {
+  /// Retourne la commande prise en charge (affichage immédiat, comme la PWA).
+  Future<Order> claimOrder(int id) async {
     try {
-      await OrderService.instance.claimOrder(id);
+      final claimed = await OrderService.instance.claimOrder(id);
       _availableOrders.removeWhere((o) => o.id == id);
-      _myOrders = await OrderService.instance.fetchMyOrders();
+      _myOrders = [
+        claimed,
+        ..._myOrders.where((o) => o.id != claimed.id),
+      ];
       notifyListeners();
+      try {
+        _myOrders = await OrderService.instance.fetchMyOrders();
+        notifyListeners();
+      } catch (_) {}
+      return claimed;
     } catch (e) {
       _error = e.toString().replaceFirst('Exception: ', '');
       notifyListeners();

@@ -29,11 +29,7 @@ class StoreApiBridge {
   Dio get dio => _dio;
 
   /// Origine API sans slash final (ex. `https://boutique.com:8081`).
-  Future<String?> get apiOrigin async {
-    final v = await AppConfigDao.instance.getValue('store_api_origin');
-    if (v == null || v.trim().isEmpty) return null;
-    return normalizeBackendOrigin(v);
-  }
+  Future<String?> get apiOrigin async => AppConfigDao.instance.getStoreApiOrigin();
 
   /// Plateforme [Order.sourcePlatform] pour laquelle on appelle l’API STORE.
   Future<String?> get sourcePlatformFilter async {
@@ -117,7 +113,7 @@ class StoreApiBridge {
     }
   }
 
-  Future<void> claimDeliveryOrder(int storeOrderId) async {
+  Future<Order> claimDeliveryOrder(int storeOrderId) async {
     final origin = await apiOrigin;
     final token = await jwt;
     if (origin == null || token == null) {
@@ -129,6 +125,10 @@ class StoreApiBridge {
       options: Options(headers: _authHeaders(token)),
     );
     _ensure2xx(res, 'Prise en charge');
+    if (res.data is Map) {
+      return Order.fromJson(Map<String, dynamic>.from(res.data as Map));
+    }
+    throw Exception('Réponse prise en charge invalide');
   }
 
   Future<void> completeDeliveryOnStore(int storeOrderId, String code) async {

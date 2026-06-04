@@ -39,7 +39,9 @@ class _OrderCardState extends State<OrderCard> {
 
   Future<void> _loadSettings() async {
     try {
-      final s = await PublicSettingsService.instance.fetch();
+      final s = await PublicSettingsService.instance.fetch(
+        storeCode: widget.order.store?.code,
+      );
       if (!mounted) return;
       setState(() => _settings = s);
     } catch (_) {}
@@ -68,7 +70,25 @@ class _OrderCardState extends State<OrderCard> {
     }
   }
 
+  String _deliveryTypeLabel(String? raw) {
+    final type = (raw ?? '').toUpperCase();
+    if (type == 'EXPRESS') return '⚡ Livraison Express';
+    if (type == 'PROGRAMMER') return '📅 Livraison Programmée';
+    if (type == 'STANDARD') return '🛵 Livraison Standard';
+    if (raw != null && raw.isNotEmpty) return raw;
+    return '';
+  }
+
   void _recomputeTimer() {
+    if (widget.mode != 'my-orders') {
+      if (mounted) {
+        setState(() {
+          _timeLeft = '';
+          _urgency = _Urgency.normal;
+        });
+      }
+      return;
+    }
     final order = widget.order;
     final type = (order.deliveryType ?? '').toUpperCase();
 
@@ -147,6 +167,23 @@ class _OrderCardState extends State<OrderCard> {
     if (raw.isEmpty) return;
     final phone = raw.replaceAll(' ', '');
     await _launchExternal(Uri(scheme: 'tel', path: phone));
+  }
+
+  Future<void> _openStoreMap(String location) async {
+    final raw = location.trim();
+    if (raw.isEmpty) return;
+    if (RegExp(r'^https?://', caseSensitive: false).hasMatch(raw)) {
+      final uri = Uri.tryParse(raw);
+      if (uri != null) {
+        await _launchExternal(uri);
+        return;
+      }
+    }
+    await _launchExternal(
+      Uri.parse(
+        'https://www.google.com/maps/search/?api=1&query=${Uri.encodeComponent(raw)}',
+      ),
+    );
   }
 
   Future<void> _openMap() async {
@@ -258,9 +295,7 @@ class _OrderCardState extends State<OrderCard> {
   }
 
   Widget _buildStoreInfo(Color primary) {
-    final storeName = (_settings['store_name'] ?? 'SUCRE STORE').trim();
-    final address = (_settings['contact_address'] ?? _settings['store_location'] ?? '').trim();
-    final whatsapp = (_settings['whatsapp_number'] ?? '').trim();
+    final pickup = widget.order.pickupInfo(_settings);
 
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -292,17 +327,30 @@ class _OrderCardState extends State<OrderCard> {
               Row(
                 children: [
                   Expanded(
-                    child: Text(
-                      storeName,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w800, color: _gray900),
+                    child: GestureDetector(
+                      onTap: pickup.location.isNotEmpty
+                          ? () => _openStoreMap(pickup.location)
+                          : null,
+                      child: Text(
+                        pickup.name,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w800,
+                          color: _gray900,
+                          decoration: pickup.location.isNotEmpty
+                              ? TextDecoration.underline
+                              : TextDecoration.none,
+                          decorationColor: primary.withValues(alpha: 0.5),
+                        ),
+                      ),
                     ),
                   ),
-                  if (whatsapp.isNotEmpty) ...[
+                  if (pickup.phone.isNotEmpty) ...[
                     const SizedBox(width: 8),
                     GestureDetector(
-                      onTap: () => _launchExternal(Uri(scheme: 'tel', path: whatsapp)),
+                      onTap: () => _launchExternal(Uri(scheme: 'tel', path: pickup.phone)),
                       child: Container(
                         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                         decoration: BoxDecoration(
@@ -311,18 +359,32 @@ class _OrderCardState extends State<OrderCard> {
                           border: Border.all(color: const Color(0xFFFDE68A)),
                         ),
                         child: Text(
-                          '📞 $whatsapp',
-                          style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w700, color: Color(0xFFD97706)),
+                          '📞 ${pickup.phone}',
+                          style: const TextStyle(
+                            fontSize: 10,
+                            fontWeight: FontWeight.w700,
+                            color: Color(0xFFD97706),
+                          ),
                         ),
                       ),
                     ),
-                  ]
+                  ],
                 ],
               ),
-              if (address.isNotEmpty) ...[
+              if (pickup.location.isNotEmpty &&
+                  !pickup.location.toLowerCase().startsWith('http')) ...[
                 const SizedBox(height: 2),
-                Text(address, style: const TextStyle(fontSize: 12, color: _gray500, fontWeight: FontWeight.w600)),
-              ]
+                Text(
+                  pickup.location,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontSize: 12,
+                    color: _gray500,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ],
             ],
           ),
         ),
@@ -332,6 +394,8 @@ class _OrderCardState extends State<OrderCard> {
 
   Widget _buildHeader(Color primary) {
     final order = widget.order;
+    final pickup = order.pickupInfo(_settings);
+    final showStoreBadge = pickup.code.isNotEmpty;
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
       decoration: const BoxDecoration(
@@ -363,16 +427,27 @@ class _OrderCardState extends State<OrderCard> {
                 fontSize: 11,
                 icon: Icons.access_time_outlined,
               ),
-              // Source plateforme
-              const SizedBox(width: 6),
-              _Chip(
-                text: order.sourcePlatform,
-                bg: _blue50,
-                border: _blue100,
-                textColor: _blue600,
-                fontWeight: FontWeight.w600,
-                fontSize: 10,
-              ),
+              if (showStoreBadge) ...[
+                const SizedBox(width: 6),
+                _Chip(
+                  text: pickup.name,
+                  bg: _gray900,
+                  border: Colors.transparent,
+                  textColor: Colors.white,
+                  fontWeight: FontWeight.w800,
+                  fontSize: 10,
+                ),
+              ] else if (order.sourcePlatform != 'manual') ...[
+                const SizedBox(width: 6),
+                _Chip(
+                  text: order.sourcePlatform,
+                  bg: _blue50,
+                  border: _blue100,
+                  textColor: _blue600,
+                  fontWeight: FontWeight.w600,
+                  fontSize: 10,
+                ),
+              ],
               const Spacer(),
               // Montant
               Text(
@@ -390,17 +465,29 @@ class _OrderCardState extends State<OrderCard> {
             spacing: 6,
             runSpacing: 6,
             children: [
-              if (order.deliveryType != null && order.deliveryType!.isNotEmpty)
+              if (_deliveryTypeLabel(order.deliveryType).isNotEmpty)
                 _Chip(
-                  text: order.deliveryType!,
-                  bg: Colors.white,
-                  border: _gray200,
-                  textColor: _gray600,
+                  text: _deliveryTypeLabel(order.deliveryType),
+                  bg: (order.deliveryType ?? '').toUpperCase() == 'EXPRESS'
+                      ? const Color(0xFFFFFBEB)
+                      : (order.deliveryType ?? '').toUpperCase() == 'PROGRAMMER'
+                          ? const Color(0xFFF5F3FF)
+                          : Colors.white,
+                  border: (order.deliveryType ?? '').toUpperCase() == 'EXPRESS'
+                      ? const Color(0xFFFDE68A)
+                      : (order.deliveryType ?? '').toUpperCase() == 'PROGRAMMER'
+                          ? const Color(0xFFDDD6FE)
+                          : _gray200,
+                  textColor: (order.deliveryType ?? '').toUpperCase() == 'EXPRESS'
+                      ? const Color(0xFFB45309)
+                      : (order.deliveryType ?? '').toUpperCase() == 'PROGRAMMER'
+                          ? const Color(0xFF7C3AED)
+                          : _gray600,
                   fontWeight: FontWeight.w700,
                   fontSize: 10,
                   icon: Icons.local_shipping_outlined,
                 ),
-              if (_timeLeft.isNotEmpty)
+              if (widget.mode == 'my-orders' && _timeLeft.isNotEmpty)
                 _Chip(
                   text: _timeLeft,
                   bg: _urgency == _Urgency.critical
@@ -414,7 +501,10 @@ class _OrderCardState extends State<OrderCard> {
                   fontSize: 10,
                   icon: Icons.schedule,
                 ),
-              if (order.scheduledTime != null && order.scheduledTime!.isNotEmpty)
+              if (widget.mode == 'my-orders' &&
+                  order.scheduledTime != null &&
+                  order.scheduledTime!.isNotEmpty &&
+                  _timeLeft.isEmpty)
                 _Chip(
                   text: order.scheduledTime!,
                   bg: Colors.white,

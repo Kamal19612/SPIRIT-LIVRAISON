@@ -17,21 +17,11 @@ import 'package:firebase_messaging/firebase_messaging.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-
   await LocalDatabase.instance.init();
-  await NotificationService.instance.init();
-  try {
-    await FcmService.instance.init();
-    FirebaseMessaging.onBackgroundMessage(firebaseMessagingBackgroundHandler);
-  } catch (_) {}
 
   final authProvider = AuthProvider();
-  await authProvider.init();
-
   final appConfigProvider = AppConfigProvider();
-  await appConfigProvider.init();
-
-  final pollingService = PollingService()..start();
+  final pollingService = PollingService();
 
   runApp(
     MultiProvider(
@@ -46,6 +36,16 @@ void main() async {
       child: const DeliveryApp(),
     ),
   );
+
+  await NotificationService.instance.init();
+  try {
+    await FcmService.instance.init();
+    FirebaseMessaging.onBackgroundMessage(firebaseMessagingBackgroundHandler);
+  } catch (_) {}
+
+  await appConfigProvider.init();
+  await authProvider.init();
+  pollingService.start();
 }
 
 class DeliveryApp extends StatelessWidget {
@@ -63,12 +63,41 @@ class DeliveryApp extends StatelessWidget {
         colorScheme: ColorScheme.fromSeed(seedColor: config.primaryColor),
         useMaterial3: true,
       ),
-      initialRoute: '/login',
+      home: const _AppStartupGate(),
       routes: {
         '/login':     (_) => const LoginScreen(),
         '/dashboard': (_) => const DashboardScreen(),
         '/admin':     (_) => const AdminShell(),
       },
     );
+  }
+}
+
+/// Écran neutre pendant l’init (sans logo) ; puis login ou route sauvegardée.
+class _AppStartupGate extends StatelessWidget {
+  const _AppStartupGate();
+
+  @override
+  Widget build(BuildContext context) {
+    final auth = context.watch<AuthProvider>();
+
+    if (auth.isInitializing) {
+      return const Scaffold(
+        backgroundColor: Colors.white,
+        body: Center(
+          child: SizedBox(
+            width: 28,
+            height: 28,
+            child: CircularProgressIndicator(strokeWidth: 2.5),
+          ),
+        ),
+      );
+    }
+
+    if (auth.isAuthenticated) {
+      return auth.user!.isAdmin ? const AdminShell() : const DashboardScreen();
+    }
+
+    return const LoginScreen();
   }
 }

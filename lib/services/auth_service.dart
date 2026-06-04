@@ -6,7 +6,6 @@ import '../config/app_config.dart';
 import '../database/app_config_dao.dart';
 import '../database/local_database.dart';
 import '../models/user_model.dart';
-import '../utils/url_normalize.dart';
 
 class AuthService {
   AuthService._();
@@ -24,12 +23,7 @@ class AuthService {
     ),
   );
 
-  Future<String?> _apiOrigin() async {
-    final raw = await AppConfigDao.instance.getValue('store_api_origin');
-    final origin = normalizeBackendOrigin(raw ?? '');
-    if (origin == null || origin.trim().isEmpty) return null;
-    return origin;
-  }
+  Future<String?> _apiOrigin() => AppConfigDao.instance.getStoreApiOrigin();
 
   Future<void> logout() async {
     await _storage.delete(key: _jwtKey);
@@ -56,34 +50,60 @@ class AuthService {
     return u?.id;
   }
 
-  Future<UserModel> login(String usernameOrEmail, String password) async {
-    final fromDb = await _apiOrigin();
-    final origin = fromDb ?? normalizeBackendOrigin(AppConfig.defaultStoreApiOrigin);
+  Future<UserModel> _persistLocalSession(UserModel localUser) async {
+    await _storage.delete(key: _jwtKey);
+    await _storage.write(
+      key: _userKey,
+      value: jsonEncode({
+        'id': localUser.id,
+        'username': localUser.username,
+        'role': localUser.role,
+      }),
+    );
+    return localUser;
+  }
 
-    // Aucun backend exploitable (très rare si [AppConfig.defaultStoreApiOrigin] est défini) : SQLite local.
+  Future<UserModel?> _tryLocalLogin(String usernameOrEmail, String password) async {
+    await LocalDatabase.instance.ensureDefaultLocalAdmin();
+    return LocalDatabase.instance.authenticateLocalUser(
+      usernameOrEmail.trim(),
+      password,
+    );
+  }
+
+  Future<UserModel> login(String usernameOrEmail, String password) async {
+    final origin = await _apiOrigin();
+
+    // Pas d’URL backend : admin/livreur locaux SQLite uniquement.
     if (origin == null || origin.isEmpty) {
-      final localUser = await LocalDatabase.instance.authenticateLocalUser(
-        usernameOrEmail.trim(),
-        password,
-      );
+      final localUser = await _tryLocalLogin(usernameOrEmail, password);
       if (localUser == null) {
         throw Exception(
-          'Identifiants incorrects ou aucun compte local. Renseignez l’URL API boutique '
-          '(Admin app → Intégrations, clé store_api_origin) pour vous connecter au serveur Spring.',
+          'Identifiants incorrects, ou configurez d’abord l’URL du backend '
+          '(Admin → Paramètres → Intégrations). Compte admin local : '
+          '${AppConfig.defaultLocalAdminUsername}.',
         );
       }
-      await _storage.delete(key: _jwtKey);
-      await _storage.write(
-        key: _userKey,
-        value: jsonEncode({
-          'id': localUser.id,
-          'username': localUser.username,
-          'role': localUser.role,
-        }),
-      );
-      return localUser;
+      return _persistLocalSession(localUser);
     }
 
+    try {
+      return await _loginRemote(origin, usernameOrEmail, password);
+    } on DioException catch (e) {
+      final localUser = await _tryLocalLogin(usernameOrEmail, password);
+      if (localUser != null) {
+        return _persistLocalSession(localUser);
+      }
+      final msg = _messageFromDio(e);
+      throw Exception(msg ?? 'Serveur injoignable et aucun compte local correspondant.');
+    }
+  }
+
+  Future<UserModel> _loginRemote(
+    String origin,
+    String usernameOrEmail,
+    String password,
+  ) async {
     final res = await _dio.post<dynamic>(
       '$origin/api/auth/login',
       data: {'username': usernameOrEmail.trim(), 'password': password},
@@ -92,6 +112,13 @@ class AuthService {
         headers: {'Accept': 'application/json'},
       ),
     );
+
+    if (res.statusCode == 401 || res.statusCode == 403) {
+      final localUser = await _tryLocalLogin(usernameOrEmail, password);
+      if (localUser != null) {
+        return _persistLocalSession(localUser);
+      }
+    }
 
     if ((res.statusCode ?? 0) < 200 || (res.statusCode ?? 0) >= 300 || res.data is! Map) {
       throw Exception(_errorMessage(res, fallback: 'Erreur de connexion'));
@@ -128,6 +155,15 @@ class AuthService {
       value: jsonEncode({'id': user.id, 'username': user.username, 'role': user.role}),
     );
     return user;
+  }
+
+  String? _messageFromDio(DioException e) {
+    final data = e.response?.data;
+    if (data is Map && data['message'] != null) {
+      return data['message'].toString();
+    }
+    if (e.message != null && e.message!.isNotEmpty) return e.message;
+    return null;
   }
 
   String _errorMessage(Response<dynamic> res, {required String fallback}) {

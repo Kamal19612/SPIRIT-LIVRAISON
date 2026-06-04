@@ -1,15 +1,17 @@
 class AppConfig {
   static const String dbName    = 'delivery_manager.db';
-  static const int    dbVersion = 10;
+  static const int    dbVersion = 12;
 
   // Valeurs par défaut (écrasées par app_config en base)
   static const String defaultAppName      = 'Delivery Manager';
   static const String defaultLogoUrl      = '';
   static const String defaultPrimaryColor = '#F5AD41';
 
-  /// Origine publique du backend Spring Boot, **sans** `/` final ni suffixe `/api`
-  /// (les appels utilisent `{origin}/api/...`). Surchargeable : Admin app → Intégrations.
-  /// En local : `http://<IP>:8081`.
-  /// API Spring (Sucre Store / même backend que la boutique). Surchargeable : Admin app → Intégrations.
-  static const String defaultStoreApiOrigin = 'https://spdelivery.socialracine.com';
+  /// Clé SQLite : URL backend saisie **manuellement** (Admin → Paramètres → Intégrations).
+  /// Aucune URL n’est injectée au build — ex. `http://192.168.1.10:8085` (STORE-ALL).
+  static const String storeApiOriginConfigKey = 'store_api_origin';
+
+  /// Compte admin SQLite (module admin autonome, sans API).
+  static const String defaultLocalAdminUsername = 'admin';
+  static const String defaultLocalAdminPassword = 'Pass_word.(1)@!';
 }

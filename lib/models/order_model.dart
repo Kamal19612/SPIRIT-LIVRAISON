@@ -1,3 +1,5 @@
+import 'order_store_info.dart';
+
 class OrderItem {
   final int id;
   final String productName;
@@ -92,6 +94,7 @@ class Order {
   final String? updatedAt;
   final bool deleted;
   final Map<String, dynamic>? deliveryAgent;
+  final OrderStoreInfo? store;
   final List<OrderItem> items;
   final String syncStatus;
   final String sourcePlatform;
@@ -119,12 +122,28 @@ class Order {
     this.updatedAt,
     this.deleted = false,
     this.deliveryAgent,
+    this.store,
     this.items = const [],
     this.syncStatus = 'local',
     this.sourcePlatform = 'manual',
   });
 
-  Order copyWith({double? distanceKm}) => Order(
+  /// Retrait boutique : priorité `store` API, repli réglages publics (comme la PWA).
+  OrderPickupInfo pickupInfo(Map<String, String> publicSettings) {
+    final s = store;
+    String settings(String key) => (publicSettings[key] ?? '').trim();
+    return OrderPickupInfo(
+      name: (s?.name.isNotEmpty == true ? s!.name : null) ??
+          settings('store_name').ifEmpty('Boutique'),
+      code: s?.code ?? '',
+      phone: (s?.phone?.isNotEmpty == true ? s!.phone! : null) ??
+          settings('whatsapp_number'),
+      location: (s?.mapsUrl?.isNotEmpty == true ? s!.mapsUrl! : null) ??
+          settings('store_location').ifEmpty(settings('contact_address')),
+    );
+  }
+
+  Order copyWith({double? distanceKm, OrderStoreInfo? store}) => Order(
         id: id,
         orderNumber: orderNumber,
         confirmationCode: confirmationCode,
@@ -147,6 +166,7 @@ class Order {
         updatedAt: updatedAt,
         deleted: deleted,
         deliveryAgent: deliveryAgent,
+        store: store ?? this.store,
         items: items,
         syncStatus: syncStatus,
         sourcePlatform: sourcePlatform,
@@ -182,6 +202,14 @@ class Order {
       );
 
   factory Order.fromJson(Map<String, dynamic> json) {
+    OrderStoreInfo? storeInfo;
+    final rawStore = json['store'];
+    if (rawStore is Map) {
+      try {
+        storeInfo = OrderStoreInfo.fromJson(Map<String, dynamic>.from(rawStore));
+      } catch (_) {}
+    }
+
     final rawItems = json['items'];
     final List<OrderItem> itemsList = [];
     if (rawItems is List) {
@@ -219,6 +247,7 @@ class Order {
       updatedAt: json['updatedAt']?.toString(),
       deleted: json['deleted'] as bool? ?? false,
       deliveryAgent: json['deliveryAgent'] as Map<String, dynamic>?,
+      store: storeInfo,
       items: itemsList,
       sourcePlatform: json['sourcePlatform']?.toString() ?? 'manual',
     );
@@ -247,7 +276,12 @@ class Order {
         'updatedAt': updatedAt,
         'deleted': deleted,
         'deliveryAgent': deliveryAgent,
+        if (store != null) 'store': store!.toJson(),
         'items': items.map((e) => e.toJson()).toList(),
         'sourcePlatform': sourcePlatform,
       };
+}
+
+extension _PickupStringFallback on String {
+  String ifEmpty(String fallback) => isEmpty ? fallback : this;
 }

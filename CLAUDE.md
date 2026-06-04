@@ -16,7 +16,12 @@ flutter build web        # Build web version
 
 ## Architecture
 
-**Sucre Store Livreur** — an offline-first Flutter delivery-driver app. Drivers can log in, claim orders, and complete deliveries; all actions queue locally when offline and sync when reconnected.
+**Store Livreur** — Flutter app with two modules:
+
+- **Livreur (`/dashboard`)** — aligné sur la PWA STORE-ALL : JWT Spring, `/api/delivery/*`, `order.store`, polling 5s, SSE `/api/notifications/stream/delivery`, FCM, bascule « Mes courses » après claim.
+- **Admin (`/admin`)** — autonome (SQLite, livreurs locaux, intégrations externes) ; pas de parité avec l’admin web STORE-ALL.
+- **Compte admin local (bootstrap SQLite)** : `admin` / `Pass_word.(1)@!` — créé ou réinitialisé au démarrage (`LocalDatabase.ensureDefaultLocalAdmin`). Connexion locale si l’API est absente, injoignable, ou refuse le JWT (repli sur SQLite).
+- **URL backend** : saisie **manuelle** uniquement (Admin → Paramètres → Intégrations). Aucune URL n’est imposée au build ; bouton « Tester la connexion » sur `GET /api/public/settings`.
 
 ### Layer Diagram
 

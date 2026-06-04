@@ -124,8 +124,8 @@ class OrderService {
     return _parseOrdersFromResponseData(res.data);
   }
 
-  Future<void> claimOrder(int orderId) async {
-    await StoreApiBridge.instance.claimDeliveryOrder(orderId);
+  Future<Order> claimOrder(int orderId) async {
+    return StoreApiBridge.instance.claimDeliveryOrder(orderId);
   }
 
   Future<void> completeDelivery(int orderId, String code) async {
