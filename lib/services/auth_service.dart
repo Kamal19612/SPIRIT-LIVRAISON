@@ -5,6 +5,7 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import '../config/app_config.dart';
 import '../database/backends_dao.dart';
 import '../database/local_database.dart';
+import '../models/backend_login_status.dart';
 import '../models/backend_server_model.dart';
 import '../models/user_model.dart';
 import 'store_api_bridge.dart';
@@ -12,11 +13,18 @@ import 'store_api_bridge.dart';
 class AuthLoginResult {
   final UserModel user;
   final List<BackendServer> authenticatedBackends;
+  final List<BackendLoginFailure> failedBackends;
 
   const AuthLoginResult({
     required this.user,
     required this.authenticatedBackends,
+    this.failedBackends = const [],
   });
+
+  BackendLoginStatus get backendStatus => BackendLoginStatus(
+        connected: authenticatedBackends,
+        failed: failedBackends,
+      );
 }
 
 class AuthService {
@@ -103,6 +111,7 @@ class AuthService {
     await StoreApiBridge.instance.clearAllSessions();
 
     final successes = <BackendServer>[];
+    final failures = <BackendLoginFailure>[];
     BackendLoginResult? primaryLogin;
     String? lastError;
 
@@ -117,7 +126,9 @@ class AuthService {
         successes.add(backend);
         primaryLogin ??= result;
       } catch (e) {
-        lastError = e.toString().replaceFirst('Exception: ', '');
+        final msg = e.toString().replaceFirst('Exception: ', '');
+        lastError = msg;
+        failures.add(BackendLoginFailure(backend: backend, message: msg));
       }
     }
 
@@ -154,6 +165,10 @@ class AuthService {
       }),
     );
 
-    return AuthLoginResult(user: user, authenticatedBackends: successes);
+    return AuthLoginResult(
+      user: user,
+      authenticatedBackends: successes,
+      failedBackends: failures,
+    );
   }
 }

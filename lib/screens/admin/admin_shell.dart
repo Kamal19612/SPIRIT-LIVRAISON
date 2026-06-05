@@ -5,6 +5,7 @@ import 'package:provider/provider.dart';
 import '../../providers/admin_provider.dart';
 import '../../providers/app_config_provider.dart';
 import '../../providers/auth_provider.dart';
+import '../../widgets/backend_connection_banner.dart';
 import 'admin_dashboard_screen.dart';
 import 'admin_drivers_screen.dart';
 import 'admin_orders_screen.dart';
@@ -78,7 +79,15 @@ class _AdminShellState extends State<AdminShell> {
         ],
         elevation: 0,
       ),
-      body: _screens[_selectedIndex],
+      body: Column(
+        children: [
+          const Padding(
+            padding: EdgeInsets.fromLTRB(12, 8, 12, 0),
+            child: BackendConnectionBanner(),
+          ),
+          Expanded(child: _screens[_selectedIndex]),
+        ],
+      ),
       bottomNavigationBar: NavigationBar(
         selectedIndex: _selectedIndex,
         onDestinationSelected: (i) => setState(() => _selectedIndex = i),

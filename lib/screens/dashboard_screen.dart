@@ -8,6 +8,7 @@ import '../services/delivery_sse_service.dart';
 import '../services/fcm_service.dart';
 import '../services/location_service.dart';
 import '../services/notification_service.dart';
+import '../widgets/backend_connection_banner.dart';
 import '../widgets/order_card.dart';
 
 class DashboardScreen extends StatefulWidget {
@@ -174,6 +175,7 @@ class _DashboardScreenState extends State<DashboardScreen>
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
           child: Column(
             children: [
+              const BackendConnectionBanner(),
               _buildHeader(auth, orders, location, primary),
               const SizedBox(height: 16),
               _buildTabSwitcher(orders),

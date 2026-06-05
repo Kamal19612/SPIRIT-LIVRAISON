@@ -57,6 +57,8 @@ Remote API (Dio)   via StoreApiBridge      ← Spring Boot, JWT par backend
 3. JWT stockés : `backend_jwt_{id}` ; liste : `auth_backend_ids`.
 4. `Order.backendId` + `Order.backendName` taguent chaque commande.
 5. Claim/complete routés vers le bon serveur.
+6. Post-login : message « Connecté sur 2/3 serveurs » (SnackBar + bannière si échec partiel).
+7. Test Intégrations : API publique + login JWT optionnel + `GET /api/delivery/orders`.
 
 ### Authentication
 

@@ -7,6 +7,8 @@ class AdminSettingField extends StatelessWidget {
   final String? hint;
   final TextInputType keyboardType;
   final ValueChanged<String>? onChanged;
+  final bool obscure;
+  final Widget? suffix;
 
   const AdminSettingField({
     super.key,
@@ -16,6 +18,8 @@ class AdminSettingField extends StatelessWidget {
     this.hint,
     this.keyboardType = TextInputType.text,
     this.onChanged,
+    this.obscure = false,
+    this.suffix,
   });
 
   @override
@@ -23,12 +27,14 @@ class AdminSettingField extends StatelessWidget {
     return TextFormField(
       controller: ctrl,
       keyboardType: keyboardType,
+      obscureText: obscure,
       maxLines: 1,
       onChanged: onChanged,
       decoration: InputDecoration(
         labelText: label,
         hintText: hint,
         prefixIcon: Icon(icon, size: 18),
+        suffixIcon: suffix,
         filled: true,
         fillColor: const Color(0xFFF9FAFB),
         border: OutlineInputBorder(

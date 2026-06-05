@@ -4,6 +4,7 @@ import '../config/app_config.dart';
 import '../database/backends_dao.dart';
 import '../providers/app_config_provider.dart';
 import '../providers/auth_provider.dart';
+import '../widgets/backend_connection_banner.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -57,7 +58,13 @@ class _LoginScreenState extends State<LoginScreen> {
     );
 
     if (!mounted) return;
-    if (auth.isAuthenticated) _routeByRole(auth);
+    if (auth.isAuthenticated) {
+      final status = auth.backendLoginStatus;
+      if (status != null) {
+        BackendConnectionBanner.showLoginSnackBar(context, status);
+      }
+      _routeByRole(auth);
+    }
   }
 
   @override

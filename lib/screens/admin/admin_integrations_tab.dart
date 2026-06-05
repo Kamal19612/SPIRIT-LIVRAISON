@@ -2,9 +2,9 @@ import 'package:flutter/material.dart';
 
 import '../../database/backends_dao.dart';
 import '../../models/backend_server_model.dart';
-import '../../services/backend_connection_service.dart';
 import '../../utils/url_normalize.dart';
 import '../../widgets/admin_setting_field.dart';
+import '../../widgets/backend_test_sheet.dart';
 
 /// Backends Spring (STORE-ALL, etc.) — une entrée par serveur.
 class AdminIntegrationsTab extends StatefulWidget {
@@ -157,8 +157,8 @@ class _GuideHeader extends StatelessWidget {
           const SizedBox(height: 8),
           Text(
             '1. URL sans /api (ex. http://192.168.0.12:8085)\n'
-            '2. Testez la connexion\n'
-            '3. Le livreur se connecte avec son compte sur chaque serveur concerné',
+            '2. Testez : API publique + login JWT optionnel + commandes livraison\n'
+            '3. Le livreur se connecte avec son compte sur chaque serveur actif',
             style: const TextStyle(fontSize: 11.5, height: 1.5, color: Color(0xFF4B5563)),
           ),
         ],
@@ -228,23 +228,6 @@ class _BackendTile extends StatefulWidget {
 }
 
 class _BackendTileState extends State<_BackendTile> {
-  bool _testing = false;
-  String? _testMessage;
-
-  Future<void> _test() async {
-    setState(() {
-      _testing = true;
-      _testMessage = null;
-    });
-    final msg = await BackendConnectionService.instance.testBackend(widget.backend);
-    if (mounted) {
-      setState(() {
-        _testing = false;
-        _testMessage = msg;
-      });
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
     final b = widget.backend;
@@ -286,34 +269,15 @@ class _BackendTileState extends State<_BackendTile> {
               Switch(value: b.isActive, onChanged: (_) => widget.onToggle()),
             ],
           ),
-          if (_testMessage != null) ...[
-            const SizedBox(height: 8),
-            Text(
-              _testMessage!,
-              style: TextStyle(
-                fontSize: 11.5,
-                fontWeight: FontWeight.w600,
-                color: _testMessage!.startsWith('Connexion OK')
-                    ? const Color(0xFF16A34A)
-                    : const Color(0xFFDC2626),
-              ),
-            ),
-          ],
           const SizedBox(height: 8),
           Wrap(
             spacing: 8,
             runSpacing: 4,
             children: [
               OutlinedButton.icon(
-                onPressed: _testing ? null : _test,
-                icon: _testing
-                    ? const SizedBox(
-                        width: 14,
-                        height: 14,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
-                    : const Icon(Icons.network_check, size: 16),
-                label: Text(_testing ? 'Test…' : 'Tester'),
+                onPressed: () => BackendTestSheet.show(context, backend: widget.backend),
+                icon: const Icon(Icons.network_check, size: 16),
+                label: const Text('Tester'),
               ),
               TextButton.icon(
                 onPressed: widget.onEdit,
@@ -347,8 +311,6 @@ class _BackendEditorSheetState extends State<_BackendEditorSheet> {
   final _originCtrl = TextEditingController();
   final _storeCodeCtrl = TextEditingController();
   bool _isSaving = false;
-  bool _isTesting = false;
-  String? _testMessage;
 
   bool get _isEdit => widget.existing?.id != null;
 
@@ -371,22 +333,20 @@ class _BackendEditorSheetState extends State<_BackendEditorSheet> {
     super.dispose();
   }
 
-  Future<void> _test() async {
-    setState(() {
-      _isTesting = true;
-      _testMessage = null;
-    });
-    final msg = await BackendConnectionService.instance.testOrigin(
-      _originCtrl.text.trim(),
+  void _openTestSheet() {
+    final origin = _originCtrl.text.trim();
+    if (origin.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Saisissez d’abord l’URL du serveur.')),
+      );
+      return;
+    }
+    BackendTestSheet.showForOrigin(
+      context,
+      origin: origin,
       storeCode: _storeCodeCtrl.text.trim(),
       label: _nameCtrl.text.trim().isEmpty ? null : _nameCtrl.text.trim(),
     );
-    if (mounted) {
-      setState(() {
-        _isTesting = false;
-        _testMessage = msg;
-      });
-    }
   }
 
   Future<void> _save() async {
@@ -467,32 +427,13 @@ class _BackendEditorSheetState extends State<_BackendEditorSheet> {
             icon: Icons.tag_outlined,
             hint: 'pour X-Store-Code sur les réglages publics',
           ),
-          if (_testMessage != null) ...[
-            const SizedBox(height: 8),
-            Text(
-              _testMessage!,
-              style: TextStyle(
-                fontSize: 11.5,
-                fontWeight: FontWeight.w600,
-                color: _testMessage!.startsWith('Connexion OK')
-                    ? const Color(0xFF16A34A)
-                    : const Color(0xFFDC2626),
-              ),
-            ),
-          ],
           const SizedBox(height: 16),
           Row(
             children: [
               OutlinedButton.icon(
-                onPressed: _isTesting ? null : _test,
-                icon: _isTesting
-                    ? const SizedBox(
-                        width: 14,
-                        height: 14,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
-                    : const Icon(Icons.network_check, size: 18),
-                label: Text(_isTesting ? 'Test…' : 'Tester'),
+                onPressed: _openTestSheet,
+                icon: const Icon(Icons.network_check, size: 18),
+                label: const Text('Tester'),
               ),
               const Spacer(),
               TextButton(
