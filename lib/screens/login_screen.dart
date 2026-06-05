@@ -169,7 +169,7 @@ class _LoginScreenState extends State<LoginScreen> {
     final text = hasBackend
         ? 'Backend : ${_storeApiOrigin!}\nConnexion JWT (livreur ou manager serveur).'
         : 'Mode local — admin : ${AppConfig.defaultLocalAdminUsername}. '
-            'URL STORE-ALL : Admin → Paramètres → Intégrations.';
+            'Serveur API : Admin → Paramètres → Intégrations.';
 
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
