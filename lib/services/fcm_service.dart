@@ -44,13 +44,17 @@ class FcmService {
   }
 
   Future<void> _registerTokenToBackend(String fcmToken) async {
-    try {
-      await StoreApiBridge.instance.registerFcmToken(
-        token: fcmToken,
-        platform: Platform.isIOS ? 'ios' : 'android',
-      );
-    } catch (_) {
-      // non bloquant (hors-ligne, JWT manquant, etc.)
+    final backends = await StoreApiBridge.instance.getAuthenticatedBackends();
+    for (final backend in backends) {
+      try {
+        await StoreApiBridge.instance.registerFcmToken(
+          backend: backend,
+          token: fcmToken,
+          platform: Platform.isIOS ? 'ios' : 'android',
+        );
+      } catch (_) {
+        // non bloquant par serveur
+      }
     }
   }
 

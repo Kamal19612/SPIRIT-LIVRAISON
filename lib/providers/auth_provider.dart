@@ -34,7 +34,8 @@ class AuthProvider extends ChangeNotifier {
     notifyListeners();
 
     try {
-      _user = await AuthService.instance.login(username, password);
+      final result = await AuthService.instance.login(username, password);
+      _user = result.user;
       try {
         await FcmService.instance.registerIfPossible(this);
       } catch (_) {}

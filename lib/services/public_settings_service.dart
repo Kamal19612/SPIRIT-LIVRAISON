@@ -1,25 +1,36 @@
 import 'package:dio/dio.dart';
 
+import '../database/backends_dao.dart';
+import '../models/backend_server_model.dart';
 import 'store_api_bridge.dart';
 
 class PublicSettingsService {
   PublicSettingsService._();
   static final PublicSettingsService instance = PublicSettingsService._();
 
-  /// Réglages vitrine (repli affichage retrait si `order.store` absent).
-  /// [storeCode] → en-tête `X-Store-Code` (aligné STORE-ALL multi-boutique).
-  Future<Map<String, String>> fetch({String? storeCode}) async {
-    final origin = await StoreApiBridge.instance.apiOrigin;
-    if (origin == null || origin.isEmpty) return {};
+  /// Réglages vitrine pour une commande (backend + code boutique).
+  Future<Map<String, String>> fetchForOrder({
+    int? backendId,
+    String? storeCode,
+  }) async {
+    BackendServer? backend;
+    if (backendId != null) {
+      backend = await BackendsDao.instance.getById(backendId);
+    }
+    if (backend == null) {
+      final list = await StoreApiBridge.instance.getAuthenticatedBackends();
+      if (list.isEmpty) return {};
+      backend = list.first;
+    }
 
     final headers = <String, String>{'Accept': 'application/json'};
-    final code = storeCode?.trim().toLowerCase();
-    if (code != null && code.isNotEmpty) {
+    final code = (storeCode ?? backend.storeCode).trim().toLowerCase();
+    if (code.isNotEmpty) {
       headers['X-Store-Code'] = code;
     }
 
     final res = await StoreApiBridge.instance.dio.get<dynamic>(
-      '$origin/api/public/settings',
+      '${backend.origin}/api/public/settings',
       options: Options(headers: headers),
     );
 
@@ -30,4 +41,3 @@ class PublicSettingsService {
     return raw.map((k, v) => MapEntry(k, v?.toString() ?? ''));
   }
 }
-

@@ -1,23 +1,39 @@
+import 'dart:convert';
+
 import 'package:dio/dio.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
-import '../database/app_config_dao.dart';
+import '../database/backends_dao.dart';
+import '../models/backend_server_model.dart';
 import '../models/order_model.dart';
 import '../utils/url_normalize.dart';
 
-/// Synchronisation des actions livreur avec l’API Sucre Store (Spring).
-///
-/// Exige [AppConfigDao] `store_api_origin` + `store_source_platform`, et un JWT
-/// obtenu via [loginWithCredentials] (appelé après connexion locale si les
-/// identifiants correspondent au compte livreur côté boutique).
+class BackendLoginResult {
+  final String token;
+  final bool isDelivery;
+  final bool isAdmin;
+  final int userId;
+  final String displayName;
+
+  const BackendLoginResult({
+    required this.token,
+    required this.isDelivery,
+    required this.isAdmin,
+    required this.userId,
+    required this.displayName,
+  });
+
+  String get effectiveRole => isDelivery ? 'DELIVERY_AGENT' : 'ADMIN';
+}
+
+/// Client API multi-backend (STORE-ALL / Spring compatible).
 class StoreApiBridge {
   StoreApiBridge._();
   static final StoreApiBridge instance = StoreApiBridge._();
 
-  static const _jwtKey = 'store_api_jwt';
+  static const _authBackendIdsKey = 'auth_backend_ids';
 
   final _storage = const FlutterSecureStorage();
-  // Exposé pour réutilisation (OrderService fetch list + autres services).
   final Dio _dio = Dio(
     BaseOptions(
       connectTimeout: const Duration(seconds: 12),
@@ -28,116 +44,156 @@ class StoreApiBridge {
 
   Dio get dio => _dio;
 
-  /// Origine API sans slash final (ex. `https://boutique.com:8081`).
-  Future<String?> get apiOrigin async => AppConfigDao.instance.getStoreApiOrigin();
+  String _jwtKey(int backendId) => 'backend_jwt_$backendId';
 
-  /// Plateforme [Order.sourcePlatform] pour laquelle on appelle l’API STORE.
-  Future<String?> get sourcePlatformFilter async {
-    final v = await AppConfigDao.instance.getValue('store_source_platform');
-    if (v == null || v.trim().isEmpty) return null;
-    return v.trim();
+  Future<List<int>> getAuthenticatedBackendIds() async {
+    final raw = await _storage.read(key: _authBackendIdsKey);
+    if (raw == null || raw.isEmpty) return [];
+    try {
+      final list = jsonDecode(raw);
+      if (list is! List) return [];
+      return list.map((e) => (e as num).toInt()).where((id) => id > 0).toList();
+    } catch (_) {
+      return [];
+    }
   }
 
-  Future<String?> get jwt async => _storage.read(key: _jwtKey);
-
-  Future<bool> get isRemoteConfigured async {
-    final o = await apiOrigin;
-    final p = await sourcePlatformFilter;
-    final t = await jwt;
-    return o != null &&
-        o.isNotEmpty &&
-        p != null &&
-        p.isNotEmpty &&
-        t != null &&
-        t.isNotEmpty;
+  Future<List<BackendServer>> getAuthenticatedBackends() async {
+    final ids = await getAuthenticatedBackendIds();
+    return BackendsDao.instance.getByIds(ids);
   }
 
-  /// Commande issue de la boutique configurée (évite d’appeler l’API avec un id tiers).
-  Future<bool> shouldSyncOrder(Order order) async {
-    if (!await isRemoteConfigured) return false;
-    final want = await sourcePlatformFilter;
-    if (want == null || want.isEmpty) return false;
-    return order.sourcePlatform == want;
-  }
-
-  Future<void> clearSession() async {
-    await _storage.delete(key: _jwtKey);
-  }
-
-  /// Connexion `POST /api/auth/login` — mot de passe en clair (comme le STORE).
-  Future<void> loginWithCredentials(String username, String password) async {
-    final origin = await apiOrigin;
-    if (origin == null || origin.isEmpty) {
-      await clearSession();
+  Future<void> setAuthenticatedBackendIds(List<int> ids) async {
+    final unique = ids.toSet().toList()..sort();
+    if (unique.isEmpty) {
+      await _storage.delete(key: _authBackendIdsKey);
       return;
     }
-    final url = '$origin/api/auth/login';
+    await _storage.write(key: _authBackendIdsKey, value: jsonEncode(unique));
+  }
+
+  Future<String?> getJwt(int backendId) => _storage.read(key: _jwtKey(backendId));
+
+  Future<void> saveJwt(int backendId, String token) async {
+    await _storage.write(key: _jwtKey(backendId), value: token);
+  }
+
+  Future<void> clearBackendSession(int backendId) async {
+    await _storage.delete(key: _jwtKey(backendId));
+  }
+
+  Future<void> clearAllSessions() async {
+    final ids = await getAuthenticatedBackendIds();
+    for (final id in ids) {
+      await clearBackendSession(id);
+    }
+    await _storage.delete(key: _authBackendIdsKey);
+    // Ancienne clé mono-backend
+    await _storage.delete(key: 'store_api_jwt');
+  }
+
+  /// Connexion `POST /api/auth/login` sur un backend donné.
+  Future<BackendLoginResult> loginOnBackend({
+    required BackendServer backend,
+    required String username,
+    required String password,
+  }) async {
+    final url = '${backend.origin}/api/auth/login';
     try {
       final res = await _dio.post<dynamic>(
         url,
-        data: {'username': username, 'password': password},
+        data: {'username': username.trim(), 'password': password},
         options: Options(
           contentType: Headers.jsonContentType,
           headers: {'Accept': 'application/json'},
         ),
       );
-      if (res.statusCode != 200 || res.data is! Map) {
-        await clearSession();
-        return;
+
+      if (res.statusCode == 401 || res.statusCode == 403) {
+        throw Exception('Identifiants refusés sur ${backend.name}.');
       }
+      if ((res.statusCode ?? 0) < 200 ||
+          (res.statusCode ?? 0) >= 300 ||
+          res.data is! Map) {
+        throw Exception(_errorMessage(res, fallback: 'Erreur sur ${backend.name}'));
+      }
+
       final map = Map<String, dynamic>.from(res.data as Map);
-      final token = map['token'] as String?;
-      if (token == null || token.isEmpty) {
-        await clearSession();
-        return;
-      }
+      final token = map['token']?.toString() ?? '';
+      if (token.isEmpty) throw Exception('Token absent (${backend.name}).');
+
       final roles = map['roles'];
-      final roleStr = roles is List ? roles.join(' ') : roles?.toString() ?? '';
-      if (!roleStr.contains('DELIVERY_AGENT') &&
-          !roleStr.contains('ADMIN') &&
-          !roleStr.contains('SUPER_ADMIN') &&
-          !roleStr.contains('MANAGER')) {
-        await clearSession();
-        throw Exception(
-          'Ce compte boutique n’a pas le rôle livreur, manager ou admin.',
-        );
+      final roleStr = roles is List ? roles.join(' ') : (roles?.toString() ?? '');
+      final isDelivery = roleStr.contains('ROLE_DELIVERY_AGENT') ||
+          roleStr.contains('DELIVERY_AGENT') ||
+          map['role']?.toString() == 'livreur';
+      final isAdmin = roleStr.contains('ROLE_ADMIN') ||
+          roleStr.contains('ROLE_SUPER_ADMIN') ||
+          roleStr.contains('ROLE_MANAGER') ||
+          roleStr.contains('ADMIN') ||
+          roleStr.contains('MANAGER') ||
+          map['role']?.toString() == 'admin';
+
+      if (!isDelivery && !isAdmin) {
+        throw Exception('Compte sans accès livraison/admin sur ${backend.name}.');
       }
-      await _storage.write(key: _jwtKey, value: token);
+
+      final id = (map['livreurId'] as num?)?.toInt() ??
+          (map['userId'] as num?)?.toInt() ??
+          0;
+      final nom = map['nom']?.toString();
+      final display = (nom != null && nom.trim().isNotEmpty)
+          ? nom.trim()
+          : username.trim();
+
+      await saveJwt(backend.id!, token);
+      return BackendLoginResult(
+        token: token,
+        isDelivery: isDelivery,
+        isAdmin: isAdmin,
+        userId: id > 0 ? id : 1,
+        displayName: display,
+      );
     } on DioException catch (e) {
-      await clearSession();
       final msg = _messageFromDio(e);
-      if (msg != null) {
-        throw Exception(msg);
-      }
-      rethrow;
+      throw Exception(msg ?? 'Serveur injoignable (${backend.name}).');
     }
   }
 
-  Future<Order> claimDeliveryOrder(int storeOrderId) async {
-    final origin = await apiOrigin;
-    final token = await jwt;
-    if (origin == null || token == null) {
-      throw Exception('API boutique non configurée ou session absente.');
+  Future<Order> claimDeliveryOrder({
+    required BackendServer backend,
+    required int storeOrderId,
+  }) async {
+    final token = await getJwt(backend.id!);
+    if (token == null) {
+      throw Exception('Session absente pour ${backend.name}.');
     }
-    final url = '$origin/api/delivery/orders/$storeOrderId/claim';
+    final url = '${backend.origin}/api/delivery/orders/$storeOrderId/claim';
     final res = await _dio.put<dynamic>(
       url,
       options: Options(headers: _authHeaders(token)),
     );
     _ensure2xx(res, 'Prise en charge');
     if (res.data is Map) {
-      return Order.fromJson(Map<String, dynamic>.from(res.data as Map));
+      return Order.fromJson(
+        Map<String, dynamic>.from(res.data as Map),
+        backendId: backend.id,
+        backendName: backend.name,
+      );
     }
     throw Exception('Réponse prise en charge invalide');
   }
 
-  Future<void> completeDeliveryOnStore(int storeOrderId, String code) async {
-    final origin = await apiOrigin;
-    final token = await jwt;
-    if (origin == null || token == null) {
-      throw Exception('API boutique non configurée ou session absente.');
+  Future<void> completeDeliveryOnStore({
+    required BackendServer backend,
+    required int storeOrderId,
+    required String code,
+  }) async {
+    final token = await getJwt(backend.id!);
+    if (token == null) {
+      throw Exception('Session absente pour ${backend.name}.');
     }
-    final url = '$origin/api/delivery/orders/$storeOrderId/complete';
+    final url = '${backend.origin}/api/delivery/orders/$storeOrderId/complete';
     final res = await _dio.post<dynamic>(
       url,
       data: {'code': code.trim()},
@@ -146,15 +202,13 @@ class StoreApiBridge {
     _ensure2xx(res, 'Validation livraison');
   }
 
-  /// Enregistre le token FCM auprès du backend Sucre Store (même compte d’où vient le JWT).
-  /// Utilise d’abord l’endpoint officiel Spring, puis l’alias historique du webhook mobile.
   Future<void> registerFcmToken({
+    required BackendServer backend,
     required String token,
     required String platform,
   }) async {
-    final origin = await apiOrigin;
-    final jwtToken = await jwt;
-    if (origin == null || jwtToken == null) return;
+    final jwtToken = await getJwt(backend.id!);
+    if (jwtToken == null) return;
 
     const paths = <String>[
       '/api/delivery/devices/register',
@@ -162,7 +216,7 @@ class StoreApiBridge {
     ];
     Object? lastError;
     for (final path in paths) {
-      final url = '$origin$path';
+      final url = '${backend.origin}$path';
       try {
         final res = await _dio.post<dynamic>(
           url,
@@ -178,7 +232,7 @@ class StoreApiBridge {
       }
     }
     if (lastError != null) {
-      throw Exception('Enregistrement FCM: $lastError');
+      throw Exception('Enregistrement FCM (${backend.name}): $lastError');
     }
   }
 
@@ -209,9 +263,13 @@ class StoreApiBridge {
     if (e.message != null && e.message!.isNotEmpty) return e.message;
     return null;
   }
+
+  String _errorMessage(Response<dynamic> res, {required String fallback}) {
+    final data = res.data;
+    if (data is Map && data['message'] != null) return data['message'].toString();
+    if (data is String && data.isNotEmpty) return data;
+    return '$fallback (${res.statusCode ?? 0})';
+  }
 }
 
-/// Origine boutique sans slash final (les chemins d’appel incluent `/api/...`).
-///
-/// Réutilise [normalizeBackendOrigin] pour corriger les espaces parasites et retirer un `/api` collé par erreur.
 String? normalizeStoreApiOrigin(String raw) => normalizeBackendOrigin(raw);

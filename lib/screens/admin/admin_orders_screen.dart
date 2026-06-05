@@ -75,8 +75,8 @@ class _AdminOrdersScreenState extends State<AdminOrdersScreen> {
                 const SizedBox(width: 10),
                 Expanded(
                   child: Text(
-                    'Les commandes sont importées automatiquement (webhooks et intégrations). '
-                    'Aucune saisie manuelle n\'est nécessaire.',
+                    'Commandes agrégées depuis les serveurs backend connectés. '
+                    'Configurez les serveurs dans Paramètres → Intégrations.',
                     style: TextStyle(
                       fontSize: 12,
                       height: 1.35,
@@ -184,7 +184,7 @@ class _AdminOrdersScreenState extends State<AdminOrdersScreen> {
                                               borderRadius: BorderRadius.circular(6),
                                             ),
                                             child: Text(
-                                              order.sourcePlatform,
+                                              order.backendName ?? order.sourcePlatform,
                                               style: const TextStyle(
                                                   fontSize: 9,
                                                   color: Color(0xFF6B7280),

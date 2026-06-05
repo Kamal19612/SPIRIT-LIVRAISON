@@ -405,9 +405,9 @@ class _DashboardScreenState extends State<DashboardScreen>
           return OrderCard(
             order: order,
             mode: mode,
-            onClaim: (id) async {
+            onClaim: (order) async {
               try {
-                await context.read<OrdersProvider>().claimOrder(id);
+                await context.read<OrdersProvider>().claimOrder(order);
                 if (!mounted) return;
                 setState(() => _selectedTab = 1);
                 _showSnackbar('Commande prise en charge !', isSuccess: true);
@@ -416,9 +416,9 @@ class _DashboardScreenState extends State<DashboardScreen>
                 if (mounted) _showSnackbar(msg);
               }
             },
-            onComplete: (id, code) async {
+            onComplete: (order, code) async {
               try {
-                await context.read<OrdersProvider>().completeDelivery(id, code);
+                await context.read<OrdersProvider>().completeDelivery(order, code);
                 if (mounted) {
                   _showSnackbar('Livraison validée ! 🎉', isSuccess: true);
                 }

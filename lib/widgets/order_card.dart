@@ -6,8 +6,8 @@ import '../services/public_settings_service.dart';
 class OrderCard extends StatefulWidget {
   final Order order;
   final String mode; // 'available' | 'my-orders'
-  final Future<void> Function(int id)? onClaim;
-  final Future<void> Function(int id, String code)? onComplete;
+  final Future<void> Function(Order order)? onClaim;
+  final Future<void> Function(Order order, String code)? onComplete;
 
   const OrderCard({
     super.key,
@@ -39,7 +39,8 @@ class _OrderCardState extends State<OrderCard> {
 
   Future<void> _loadSettings() async {
     try {
-      final s = await PublicSettingsService.instance.fetch(
+      final s = await PublicSettingsService.instance.fetchForOrder(
+        backendId: widget.order.backendId,
         storeCode: widget.order.store?.code,
       );
       if (!mounted) return;
@@ -219,7 +220,7 @@ class _OrderCardState extends State<OrderCard> {
     if (_isClaiming || widget.onClaim == null) return;
     setState(() => _isClaiming = true);
     try {
-      await widget.onClaim!(widget.order.id);
+      await widget.onClaim!(widget.order);
     } finally {
       if (mounted) setState(() => _isClaiming = false);
     }
@@ -234,7 +235,7 @@ class _OrderCardState extends State<OrderCard> {
     if (_isCompleting || widget.onComplete == null) return;
     setState(() { _isCompleting = true; _codeError = null; });
     try {
-      await widget.onComplete!(widget.order.id, code);
+      await widget.onComplete!(widget.order, code);
     } catch (e) {
       if (mounted) {
         setState(() => _codeError = e.toString().replaceFirst('Exception: ', ''));
@@ -437,10 +438,10 @@ class _OrderCardState extends State<OrderCard> {
                   fontWeight: FontWeight.w800,
                   fontSize: 10,
                 ),
-              ] else if (order.sourcePlatform != 'manual') ...[
+              ] else if (order.backendName != null && order.backendName!.isNotEmpty) ...[
                 const SizedBox(width: 6),
                 _Chip(
-                  text: order.sourcePlatform,
+                  text: order.backendName!,
                   bg: _blue50,
                   border: _blue100,
                   textColor: _blue600,

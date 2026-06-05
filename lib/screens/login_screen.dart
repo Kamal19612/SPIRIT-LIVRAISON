@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../config/app_config.dart';
-import '../database/app_config_dao.dart';
+import '../database/backends_dao.dart';
 import '../providers/app_config_provider.dart';
 import '../providers/auth_provider.dart';
 
@@ -18,7 +18,7 @@ class _LoginScreenState extends State<LoginScreen> {
   final _passwordController = TextEditingController();
   bool _obscurePassword = true;
   String? _localError;
-  String? _storeApiOrigin;
+  int _backendCount = 0;
 
   static const Color _surface = Color(0xFFF9FAFB);
   static const Color _border = Color(0xFFE5E7EB);
@@ -37,8 +37,8 @@ class _LoginScreenState extends State<LoginScreen> {
       _routeByRole(auth);
       return;
     }
-    final origin = await AppConfigDao.instance.getStoreApiOrigin();
-    if (mounted) setState(() => _storeApiOrigin = origin);
+    final backends = await BackendsDao.instance.getAll(activeOnly: true);
+    if (mounted) setState(() => _backendCount = backends.length);
   }
 
   void _routeByRole(AuthProvider auth) {
@@ -147,29 +147,17 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 
   Widget _buildConnectionBanner() {
-    if (_storeApiOrigin == null) {
-      return const SizedBox(
-        height: 20,
-        child: Center(
-          child: SizedBox(
-            width: 18,
-            height: 18,
-            child: CircularProgressIndicator(strokeWidth: 2),
-          ),
-        ),
-      );
-    }
-
-    final hasBackend = _storeApiOrigin!.isNotEmpty;
+    final hasBackend = _backendCount > 0;
     final bg = hasBackend ? const Color(0xFFEFF6FF) : const Color(0xFFF0FDF4);
     final border = hasBackend ? const Color(0xFFBFDBFE) : const Color(0xFFBBF7D0);
     final fg = hasBackend ? const Color(0xFF1E40AF) : const Color(0xFF166534);
     final icon = hasBackend ? Icons.cloud_done_outlined : Icons.storage_outlined;
 
     final text = hasBackend
-        ? 'Backend : ${_storeApiOrigin!}\nConnexion JWT (livreur ou manager serveur).'
+        ? '$_backendCount serveur${_backendCount > 1 ? 's' : ''} configuré${_backendCount > 1 ? 's' : ''}.\n'
+            'Connexion JWT sur chaque serveur actif (livreur ou manager).'
         : 'Mode local — admin : ${AppConfig.defaultLocalAdminUsername}. '
-            'Serveur API : Admin → Paramètres → Intégrations.';
+            'Ajoutez des serveurs : Admin → Paramètres → Intégrations.';
 
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),

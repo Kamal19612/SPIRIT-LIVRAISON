@@ -18,10 +18,10 @@ flutter build web        # Build web version
 
 **Store Livreur** — Flutter app with two modules:
 
-- **Livreur (`/dashboard`)** — aligné sur la PWA STORE-ALL : JWT Spring, `/api/delivery/*`, `order.store`, polling 5s, SSE `/api/notifications/stream/delivery`, FCM, bascule « Mes courses » après claim.
-- **Admin (`/admin`)** — autonome (SQLite, livreurs locaux, intégrations externes) ; pas de parité avec l’admin web STORE-ALL.
-- **Compte admin local (bootstrap SQLite)** : `admin` / `Pass_word.(1)@!` — créé ou réinitialisé au démarrage (`LocalDatabase.ensureDefaultLocalAdmin`). Connexion locale si l’API est absente, injoignable, ou refuse le JWT (repli sur SQLite).
-- **URL backend** : saisie **manuelle** uniquement (Admin → Paramètres → Intégrations). Aucune URL n’est imposée au build ; bouton « Tester la connexion » sur `GET /api/public/settings`.
+- **Livreur (`/dashboard`)** — aligné sur la PWA STORE-ALL : JWT Spring multi-backend, `/api/delivery/*`, `order.store`, polling 5s, SSE `/api/notifications/stream/delivery`, FCM, bascule « Mes courses » après claim.
+- **Admin (`/admin`)** — autonome (SQLite, livreurs locaux) ; commandes admin agrégées depuis les backends connectés.
+- **Compte admin local (bootstrap SQLite)** : `admin` / `Pass_word.(1)@!` — créé ou réinitialisé au démarrage (`LocalDatabase.ensureDefaultLocalAdmin`). Connexion locale si aucun backend configuré, ou repli si API injoignable.
+- **Backends** : liste SQLite `backends` (Admin → Paramètres → Intégrations). Une entrée par serveur STORE-ALL. Login JWT sur chaque serveur actif ; commandes fusionnées dans le dashboard livreur.
 
 ### Layer Diagram
 
@@ -32,41 +32,38 @@ Providers          (lib/providers/)        ← ChangeNotifier, consumed via cont
         ↓
 Services           (lib/services/)         ← stateless business logic
         ↓
-DAO / SQLite       (lib/database/)         ← local cache + pending-action queue
+DAO / SQLite       (lib/database/)         ← backends, users, local cache
         ↓
-Remote API (Dio)   via ApiClient           ← Spring Boot at http://172.18.0.3:8081
+Remote API (Dio)   via StoreApiBridge      ← Spring Boot, JWT par backend
 ```
 
 ### Key Files
 
 | File | Role |
 |------|------|
-| `lib/main.dart` | Entry point — initializes DB, API client, restores auth session, sets up MultiProvider |
-| `lib/config/app_config.dart` | Hardcoded API base URL, PostgreSQL creds (dev only) |
-| `lib/providers/auth_provider.dart` | Login/logout state; drives route decisions |
-| `lib/providers/orders_provider.dart` | Orders list, connectivity flag, background sync trigger |
-| `lib/services/api_client.dart` | Dio instance with JWT interceptor; auto-logout on 401 |
-| `lib/services/auth_service.dart` | Online login + offline SHA-256 hash fallback |
-| `lib/services/order_service.dart` | Fetch, claim, complete — with offline pending-action fallback |
-| `lib/database/local_database.dart` | SQLite schema: `orders`, `pending_actions`, `sync_meta` |
-| `lib/database/orders_dao.dart` | All CRUD against SQLite |
-| `lib/sync/sync_manager.dart` | Drains `pending_actions` table when back online |
+| `lib/main.dart` | Entry point — initializes DB, restores auth session, sets up MultiProvider |
+| `lib/database/backends_dao.dart` | CRUD serveurs backend (URL, nom, code boutique) |
+| `lib/services/store_api_bridge.dart` | JWT par backend, claim/complete, FCM |
+| `lib/services/auth_service.dart` | Login multi-backend + repli SQLite local |
+| `lib/services/order_service.dart` | Agrégation commandes depuis tous les backends connectés |
+| `lib/screens/admin/admin_integrations_tab.dart` | UI configuration serveurs |
+| `lib/providers/orders_provider.dart` | Liste commandes, claim/complete (clé `backendId:id`) |
+| `lib/services/delivery_sse_service.dart` | SSE par backend connecté |
 
-### Offline Strategy
+### Multi-backend
 
-1. On startup, UI shows SQLite-cached orders immediately.
-2. Background fetch from API updates the cache.
-3. Any claim/complete action while offline is inserted into `pending_actions`.
-4. `SyncManager.pushPending()` is called on reconnect (via `connectivity_plus` listener in `OrdersProvider`).
-5. `NetworkBanner` widget reflects `_isOnline` from `OrdersProvider`.
+1. Admin ajoute N serveurs (`name`, `origin`, `storeCode` optionnel).
+2. Livreur login → `POST /api/auth/login` sur chaque serveur actif (mêmes identifiants).
+3. JWT stockés : `backend_jwt_{id}` ; liste : `auth_backend_ids`.
+4. `Order.backendId` + `Order.backendName` taguent chaque commande.
+5. Claim/complete routés vers le bon serveur.
+
+### Authentication
+
+- JWT stocké par backend dans `FlutterSecureStorage`.
+- Session restaurée si profil utilisateur + au moins un JWT backend valide.
+- Offline login compare SHA-256 du mot de passe contre hash SQLite (admin/livreurs locaux).
 
 ### State Management
 
 Uses the `provider` package (`ChangeNotifier`). `AuthProvider` and `OrdersProvider` are registered at the root in `main.dart` via `MultiProvider`. Screens use `context.watch` / `context.read`.
-
-### Authentication
-
-- JWT stored in `FlutterSecureStorage`.
-- Session restored on app start (`AuthProvider.init()`).
-- `ApiClient` injects the token into every request via a Dio interceptor.
-- Offline login compares SHA-256 of the entered password against the stored hash.

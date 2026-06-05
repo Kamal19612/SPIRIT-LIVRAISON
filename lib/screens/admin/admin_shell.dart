@@ -5,7 +5,6 @@ import 'package:provider/provider.dart';
 import '../../providers/admin_provider.dart';
 import '../../providers/app_config_provider.dart';
 import '../../providers/auth_provider.dart';
-import '../../services/polling_service.dart';
 import 'admin_dashboard_screen.dart';
 import 'admin_drivers_screen.dart';
 import 'admin_orders_screen.dart';
@@ -34,7 +33,6 @@ class _AdminShellState extends State<AdminShell> {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       context.read<AdminProvider>().loadAll();
-      context.read<PollingService>().addListener(_onPollUpdate);
       final auth = context.read<AuthProvider>();
       if (auth.user?.isAdmin == true) {
         _adminRefreshTimer = Timer.periodic(
@@ -51,18 +49,7 @@ class _AdminShellState extends State<AdminShell> {
   @override
   void dispose() {
     _adminRefreshTimer?.cancel();
-    context.read<PollingService>().removeListener(_onPollUpdate);
     super.dispose();
-  }
-
-  void _onPollUpdate() {
-    final polling = context.read<PollingService>();
-    final anyDone = polling.states.values.any(
-      (s) => s.status == SourceSyncStatus.ok || s.status == SourceSyncStatus.error,
-    );
-    if (anyDone && mounted) {
-      context.read<AdminProvider>().loadOrders();
-    }
   }
 
   Future<void> _handleLogout() async {

@@ -1,6 +1,6 @@
 import 'package:dio/dio.dart';
 
-import '../database/app_config_dao.dart';
+import '../models/backend_server_model.dart';
 import '../utils/url_normalize.dart';
 
 /// Test de joignabilité d’un backend Spring (STORE-ALL ou compatible).
@@ -16,8 +16,8 @@ class BackendConnectionService {
     ),
   );
 
-  /// Vérifie `GET {origin}/api/public/settings` (endpoint public multi-boutique).
-  Future<String> testOrigin(String rawOrigin) async {
+  /// Vérifie `GET {origin}/api/public/settings`.
+  Future<String> testOrigin(String rawOrigin, {String? storeCode, String? label}) async {
     if (rawOrigin.trim().isEmpty) {
       return 'Saisissez l’URL du backend (ex. http://192.168.1.5:8085).';
     }
@@ -25,26 +25,40 @@ class BackendConnectionService {
     if (base == null) {
       return 'URL invalide — utilisez http:// ou https:// (sans /api à la fin).';
     }
+
+    final headers = <String, String>{'Accept': 'application/json'};
+    final code = storeCode?.trim().toLowerCase();
+    if (code != null && code.isNotEmpty) {
+      headers['X-Store-Code'] = code;
+    }
+
     final url = '$base/api/public/settings';
+    final name = label?.trim().isNotEmpty == true ? label!.trim() : base;
     try {
-      final res = await _dio.get<dynamic>(
-        url,
-        options: Options(headers: {'Accept': 'application/json'}),
-      );
-      final code = res.statusCode ?? 0;
-      if (code >= 200 && code < 300) {
-        return 'Connexion OK ($code) — $base';
+      final res = await _dio.get<dynamic>(url, options: Options(headers: headers));
+      final status = res.statusCode ?? 0;
+      if (status >= 200 && status < 300) {
+        var extra = '';
+        if (res.data is Map) {
+          final storeName = (res.data as Map)['store_name']?.toString();
+          if (storeName != null && storeName.isNotEmpty) {
+            extra = ' — $storeName';
+          }
+        }
+        return 'Connexion OK ($status) — $name$extra';
       }
-      return 'Réponse inattendue ($code) sur $url';
+      return 'Réponse inattendue ($status) sur $url';
     } on DioException catch (e) {
       final msg = e.message ?? e.type.name;
-      return 'Échec : $msg ($url)';
+      return 'Échec ($name) : $msg';
     }
   }
 
-  Future<String> testSavedOrigin() async {
-    final saved = await AppConfigDao.instance.getStoreApiOrigin();
-    if (saved == null) return 'Aucune URL enregistrée.';
-    return testOrigin(saved);
+  Future<String> testBackend(BackendServer backend) {
+    return testOrigin(
+      backend.origin,
+      storeCode: backend.storeCode,
+      label: backend.name,
+    );
   }
 }

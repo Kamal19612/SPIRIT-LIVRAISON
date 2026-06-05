@@ -19,8 +19,6 @@ class OrdersProvider extends ChangeNotifier {
   bool        get isRefreshing    => _isRefreshing;
   String?     get error           => _error;
 
-  // ── Localisation livreur ───────────────────────────────────────────────────
-
   void updateDriverLocation(double? lat, double? lng) {
     _driverLat = lat;
     _driverLng = lng;
@@ -59,8 +57,6 @@ class OrdersProvider extends ChangeNotifier {
     return list;
   }
 
-  // ── Initialisation ─────────────────────────────────────────────────────────
-
   Future<void> init() async {
     _isLoading = true;
     _error     = null;
@@ -75,8 +71,6 @@ class OrdersProvider extends ChangeNotifier {
       notifyListeners();
     }
   }
-
-  // ── Chargement par onglet ──────────────────────────────────────────────────
 
   Future<void> loadOrders(String tab) async {
     _isLoading = true;
@@ -96,9 +90,6 @@ class OrdersProvider extends ChangeNotifier {
     }
   }
 
-  // ── Actualisation ──────────────────────────────────────────────────────────
-
-  /// [silent] : polling / SSE — pas de spinner plein écran (aligné PWA).
   Future<void> refresh({bool silent = false}) async {
     if (_refreshInFlight) return;
     _refreshInFlight = true;
@@ -123,16 +114,13 @@ class OrdersProvider extends ChangeNotifier {
     }
   }
 
-  // ── Actions ────────────────────────────────────────────────────────────────
-
-  /// Retourne la commande prise en charge (affichage immédiat, comme la PWA).
-  Future<Order> claimOrder(int id) async {
+  Future<Order> claimOrder(Order order) async {
     try {
-      final claimed = await OrderService.instance.claimOrder(id);
-      _availableOrders.removeWhere((o) => o.id == id);
+      final claimed = await OrderService.instance.claimOrder(order);
+      _availableOrders.removeWhere((o) => o.compositeKey == order.compositeKey);
       _myOrders = [
         claimed,
-        ..._myOrders.where((o) => o.id != claimed.id),
+        ..._myOrders.where((o) => o.compositeKey != claimed.compositeKey),
       ];
       notifyListeners();
       try {
@@ -147,10 +135,10 @@ class OrdersProvider extends ChangeNotifier {
     }
   }
 
-  Future<void> completeDelivery(int id, String code) async {
+  Future<void> completeDelivery(Order order, String code) async {
     try {
-      await OrderService.instance.completeDelivery(id, code);
-      _myOrders.removeWhere((o) => o.id == id);
+      await OrderService.instance.completeDelivery(order, code);
+      _myOrders.removeWhere((o) => o.compositeKey == order.compositeKey);
       notifyListeners();
     } catch (e) {
       _error = e.toString().replaceFirst('Exception: ', '');

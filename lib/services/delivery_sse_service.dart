@@ -1,18 +1,20 @@
 import 'dart:async';
 import 'dart:convert';
+
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 
+import '../models/backend_server_model.dart';
 import 'store_api_bridge.dart';
 
-/// Flux SSE livreur (`GET /api/notifications/stream/delivery`), aligné PWA STORE-ALL.
+/// Flux SSE livreur multi-backend (`GET /api/notifications/stream/delivery`).
 class DeliverySseService {
   DeliverySseService._();
   static final DeliverySseService instance = DeliverySseService._();
 
   static const _reconnectDelay = Duration(seconds: 5);
 
-  CancelToken? _cancelToken;
+  final Map<int, CancelToken> _cancelTokens = {};
   void Function(String event, Map<String, dynamic> data)? _onEvent;
   bool _stopped = true;
   Timer? _reconnectTimer;
@@ -22,41 +24,55 @@ class DeliverySseService {
   }) async {
     _onEvent = onEvent;
     _stopped = false;
-    await _connect();
+    await _connectAll();
   }
 
   Future<void> stop() async {
     _stopped = true;
     _reconnectTimer?.cancel();
     _reconnectTimer = null;
-    _cancelToken?.cancel('sse_stop');
-    _cancelToken = null;
+    for (final token in _cancelTokens.values) {
+      token.cancel('sse_stop');
+    }
+    _cancelTokens.clear();
   }
 
   void _scheduleReconnect() {
     if (_stopped || _onEvent == null) return;
     _reconnectTimer?.cancel();
     _reconnectTimer = Timer(_reconnectDelay, () {
-      if (!_stopped) unawaited(_connect());
+      if (!_stopped) unawaited(_connectAll());
     });
   }
 
-  Future<void> _connect() async {
+  Future<void> _connectAll() async {
     if (_stopped || _onEvent == null) return;
 
-    final origin = await StoreApiBridge.instance.apiOrigin;
-    final token = await StoreApiBridge.instance.jwt;
-    if (origin == null || token == null || token.isEmpty) {
+    final backends = await StoreApiBridge.instance.getAuthenticatedBackends();
+    if (backends.isEmpty) {
       _scheduleReconnect();
       return;
     }
 
-    _cancelToken?.cancel('sse_reconnect');
-    _cancelToken = CancelToken();
+    for (final backend in backends) {
+      if (backend.id == null) continue;
+      unawaited(_connectBackend(backend));
+    }
+  }
+
+  Future<void> _connectBackend(BackendServer backend) async {
+    if (_stopped || _onEvent == null || backend.id == null) return;
+
+    final token = await StoreApiBridge.instance.getJwt(backend.id!);
+    if (token == null || token.isEmpty) return;
+
+    _cancelTokens[backend.id!]?.cancel('sse_reconnect');
+    final cancelToken = CancelToken();
+    _cancelTokens[backend.id!] = cancelToken;
 
     try {
       final response = await StoreApiBridge.instance.dio.get<ResponseBody>(
-        '$origin/api/notifications/stream/delivery',
+        '${backend.origin}/api/notifications/stream/delivery',
         options: Options(
           headers: {
             'Authorization': 'Bearer $token',
@@ -65,7 +81,7 @@ class DeliverySseService {
           responseType: ResponseType.stream,
           receiveTimeout: Duration.zero,
         ),
-        cancelToken: _cancelToken,
+        cancelToken: cancelToken,
       );
 
       final stream = response.data?.stream;
@@ -94,11 +110,11 @@ class DeliverySseService {
     } on DioException catch (e) {
       if (e.type == DioExceptionType.cancel) return;
       if (kDebugMode) {
-        debugPrint('[DeliverySSE] ${e.message}');
+        debugPrint('[DeliverySSE:${backend.name}] ${e.message}');
       }
       _scheduleReconnect();
     } catch (e) {
-      if (kDebugMode) debugPrint('[DeliverySSE] $e');
+      if (kDebugMode) debugPrint('[DeliverySSE:${backend.name}] $e');
       _scheduleReconnect();
     }
   }

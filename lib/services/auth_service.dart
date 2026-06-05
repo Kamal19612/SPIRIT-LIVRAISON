@@ -1,34 +1,41 @@
 import 'dart:convert';
-import 'package:dio/dio.dart';
+
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 import '../config/app_config.dart';
-import '../database/app_config_dao.dart';
+import '../database/backends_dao.dart';
 import '../database/local_database.dart';
+import '../models/backend_server_model.dart';
 import '../models/user_model.dart';
+import 'store_api_bridge.dart';
+
+class AuthLoginResult {
+  final UserModel user;
+  final List<BackendServer> authenticatedBackends;
+
+  const AuthLoginResult({
+    required this.user,
+    required this.authenticatedBackends,
+  });
+}
 
 class AuthService {
   AuthService._();
   static final AuthService instance = AuthService._();
 
   final _storage = const FlutterSecureStorage();
-  static const _jwtKey = 'store_api_jwt';
   static const _userKey = 'store_api_user_json';
 
-  final Dio _dio = Dio(
-    BaseOptions(
-      connectTimeout: const Duration(seconds: 12),
-      receiveTimeout: const Duration(seconds: 25),
-      validateStatus: (s) => s != null && s < 500,
-    ),
-  );
-
-  Future<String?> _apiOrigin() => AppConfigDao.instance.getStoreApiOrigin();
-
   Future<void> logout() async {
-    await _storage.delete(key: _jwtKey);
+    await StoreApiBridge.instance.clearAllSessions();
     await _storage.delete(key: _userKey);
   }
+
+  Future<List<BackendServer>> getAuthenticatedBackends() =>
+      StoreApiBridge.instance.getAuthenticatedBackends();
+
+  Future<List<BackendServer>> getConfiguredBackends({bool activeOnly = true}) =>
+      BackendsDao.instance.getAll(activeOnly: activeOnly);
 
   Future<UserModel?> tryRestoreSession() async {
     final raw = await _storage.read(key: _userKey);
@@ -39,6 +46,11 @@ class AuthService {
       final username = map['username']?.toString() ?? '';
       final role = map['role']?.toString() ?? 'DELIVERY_AGENT';
       if (id <= 0 || username.isEmpty) return null;
+
+      final backends = await StoreApiBridge.instance.getAuthenticatedBackends();
+      final isLocalOnly = map['localOnly'] == true;
+      if (!isLocalOnly && backends.isEmpty) return null;
+
       return UserModel(id: id, username: username, role: role);
     } catch (_) {
       return null;
@@ -51,13 +63,14 @@ class AuthService {
   }
 
   Future<UserModel> _persistLocalSession(UserModel localUser) async {
-    await _storage.delete(key: _jwtKey);
+    await StoreApiBridge.instance.clearAllSessions();
     await _storage.write(
       key: _userKey,
       value: jsonEncode({
         'id': localUser.id,
         'username': localUser.username,
         'role': localUser.role,
+        'localOnly': true,
       }),
     );
     return localUser;
@@ -71,105 +84,76 @@ class AuthService {
     );
   }
 
-  Future<UserModel> login(String usernameOrEmail, String password) async {
-    final origin = await _apiOrigin();
+  Future<AuthLoginResult> login(String usernameOrEmail, String password) async {
+    final backends = await BackendsDao.instance.getAll(activeOnly: true);
 
-    // Pas d’URL backend : admin/livreur locaux SQLite uniquement.
-    if (origin == null || origin.isEmpty) {
+    if (backends.isEmpty) {
       final localUser = await _tryLocalLogin(usernameOrEmail, password);
       if (localUser == null) {
         throw Exception(
-          'Identifiants incorrects, ou configurez d’abord l’URL du backend '
+          'Identifiants incorrects, ou ajoutez d’abord un serveur backend '
           '(Admin → Paramètres → Intégrations). Compte admin local : '
           '${AppConfig.defaultLocalAdminUsername}.',
         );
       }
-      return _persistLocalSession(localUser);
+      final user = await _persistLocalSession(localUser);
+      return AuthLoginResult(user: user, authenticatedBackends: const []);
     }
 
-    try {
-      return await _loginRemote(origin, usernameOrEmail, password);
-    } on DioException catch (e) {
+    await StoreApiBridge.instance.clearAllSessions();
+
+    final successes = <BackendServer>[];
+    BackendLoginResult? primaryLogin;
+    String? lastError;
+
+    for (final backend in backends) {
+      if (backend.id == null) continue;
+      try {
+        final result = await StoreApiBridge.instance.loginOnBackend(
+          backend: backend,
+          username: usernameOrEmail,
+          password: password,
+        );
+        successes.add(backend);
+        primaryLogin ??= result;
+      } catch (e) {
+        lastError = e.toString().replaceFirst('Exception: ', '');
+      }
+    }
+
+    if (successes.isEmpty || primaryLogin == null) {
       final localUser = await _tryLocalLogin(usernameOrEmail, password);
       if (localUser != null) {
-        return _persistLocalSession(localUser);
+        final user = await _persistLocalSession(localUser);
+        return AuthLoginResult(user: user, authenticatedBackends: const []);
       }
-      final msg = _messageFromDio(e);
-      throw Exception(msg ?? 'Serveur injoignable et aucun compte local correspondant.');
+      throw Exception(
+        lastError ??
+            'Aucun serveur n’a accepté ces identifiants. Vérifiez URL et compte livreur.',
+      );
     }
-  }
 
-  Future<UserModel> _loginRemote(
-    String origin,
-    String usernameOrEmail,
-    String password,
-  ) async {
-    final res = await _dio.post<dynamic>(
-      '$origin/api/auth/login',
-      data: {'username': usernameOrEmail.trim(), 'password': password},
-      options: Options(
-        contentType: Headers.jsonContentType,
-        headers: {'Accept': 'application/json'},
-      ),
+    await StoreApiBridge.instance.setAuthenticatedBackendIds(
+      successes.map((b) => b.id!).toList(),
     );
 
-    if (res.statusCode == 401 || res.statusCode == 403) {
-      final localUser = await _tryLocalLogin(usernameOrEmail, password);
-      if (localUser != null) {
-        return _persistLocalSession(localUser);
-      }
-    }
+    final user = UserModel(
+      id: primaryLogin.userId,
+      username: primaryLogin.displayName,
+      role: primaryLogin.effectiveRole,
+    );
 
-    if ((res.statusCode ?? 0) < 200 || (res.statusCode ?? 0) >= 300 || res.data is! Map) {
-      throw Exception(_errorMessage(res, fallback: 'Erreur de connexion'));
-    }
-
-    final map = Map<String, dynamic>.from(res.data as Map);
-    final token = map['token']?.toString() ?? '';
-    if (token.isEmpty) throw Exception('Token absent.');
-
-    // roles: ["ROLE_ADMIN", ...]
-    final roles = map['roles'];
-    final roleStr = roles is List ? roles.join(' ') : (roles?.toString() ?? '');
-
-    final isDelivery = roleStr.contains('ROLE_DELIVERY_AGENT') || map['role']?.toString() == 'livreur';
-    final isAdmin = roleStr.contains('ROLE_ADMIN') ||
-        roleStr.contains('ROLE_SUPER_ADMIN') ||
-        roleStr.contains('ROLE_MANAGER') ||
-        map['role']?.toString() == 'admin';
-
-    if (!isDelivery && !isAdmin) {
-      throw Exception('Compte sans accès livraison/admin.');
-    }
-
-    final effectiveRole = isDelivery ? 'DELIVERY_AGENT' : 'ADMIN';
-    final id = (map['livreurId'] as num?)?.toInt() ?? (map['userId'] as num?)?.toInt() ?? 0;
-    final nom = map['nom']?.toString();
-    final display = (nom != null && nom.trim().isNotEmpty) ? nom.trim() : usernameOrEmail.trim();
-
-    final user = UserModel(id: id > 0 ? id : 1, username: display, role: effectiveRole);
-
-    await _storage.write(key: _jwtKey, value: token);
     await _storage.write(
       key: _userKey,
-      value: jsonEncode({'id': user.id, 'username': user.username, 'role': user.role}),
+      value: jsonEncode({
+        'id': user.id,
+        'username': user.username,
+        'role': user.role,
+        'localOnly': false,
+        'backendCount': successes.length,
+      }),
     );
-    return user;
-  }
 
-  String? _messageFromDio(DioException e) {
-    final data = e.response?.data;
-    if (data is Map && data['message'] != null) {
-      return data['message'].toString();
-    }
-    if (e.message != null && e.message!.isNotEmpty) return e.message;
-    return null;
-  }
-
-  String _errorMessage(Response<dynamic> res, {required String fallback}) {
-    final data = res.data;
-    if (data is Map && data['message'] != null) return data['message'].toString();
-    if (data is String && data.isNotEmpty) return data;
-    return '$fallback (${res.statusCode ?? 0})';
+    return AuthLoginResult(user: user, authenticatedBackends: successes);
   }
 }

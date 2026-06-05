@@ -11,7 +11,6 @@ import 'screens/dashboard_screen.dart';
 import 'screens/login_screen.dart';
 import 'services/location_service.dart';
 import 'services/notification_service.dart';
-import 'services/polling_service.dart';
 import 'services/fcm_service.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 
@@ -21,14 +20,11 @@ void main() async {
 
   final authProvider = AuthProvider();
   final appConfigProvider = AppConfigProvider();
-  final pollingService = PollingService();
-
   runApp(
     MultiProvider(
       providers: [
         ChangeNotifierProvider.value(value: authProvider),
         ChangeNotifierProvider.value(value: appConfigProvider),
-        ChangeNotifierProvider.value(value: pollingService),
         ChangeNotifierProvider(create: (_) => OrdersProvider()),
         ChangeNotifierProvider(create: (_) => AdminProvider()),
         ChangeNotifierProvider(create: (_) => LocationService()),
@@ -45,7 +41,6 @@ void main() async {
 
   await appConfigProvider.init();
   await authProvider.init();
-  pollingService.start();
 }
 
 class DeliveryApp extends StatelessWidget {

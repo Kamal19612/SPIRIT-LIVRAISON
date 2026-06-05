@@ -98,6 +98,8 @@ class Order {
   final List<OrderItem> items;
   final String syncStatus;
   final String sourcePlatform;
+  final int? backendId;
+  final String? backendName;
 
   const Order({
     required this.id,
@@ -126,7 +128,12 @@ class Order {
     this.items = const [],
     this.syncStatus = 'local',
     this.sourcePlatform = 'manual',
+    this.backendId,
+    this.backendName,
   });
+
+  /// Clé stable pour fusion multi-backend (même id sur deux serveurs).
+  String get compositeKey => '${backendId ?? 0}:$id';
 
   /// Retrait boutique : priorité `store` API, repli réglages publics (comme la PWA).
   OrderPickupInfo pickupInfo(Map<String, String> publicSettings) {
@@ -143,7 +150,13 @@ class Order {
     );
   }
 
-  Order copyWith({double? distanceKm, OrderStoreInfo? store}) => Order(
+  Order copyWith({
+    double? distanceKm,
+    OrderStoreInfo? store,
+    int? backendId,
+    String? backendName,
+  }) =>
+      Order(
         id: id,
         orderNumber: orderNumber,
         confirmationCode: confirmationCode,
@@ -170,6 +183,8 @@ class Order {
         items: items,
         syncStatus: syncStatus,
         sourcePlatform: sourcePlatform,
+        backendId: backendId ?? this.backendId,
+        backendName: backendName ?? this.backendName,
       );
 
   factory Order.fromSqlite(Map<String, dynamic> row) => Order(
@@ -201,7 +216,11 @@ class Order {
         sourcePlatform: row['sourcePlatform']?.toString() ?? 'manual',
       );
 
-  factory Order.fromJson(Map<String, dynamic> json) {
+  factory Order.fromJson(
+    Map<String, dynamic> json, {
+    int? backendId,
+    String? backendName,
+  }) {
     OrderStoreInfo? storeInfo;
     final rawStore = json['store'];
     if (rawStore is Map) {
@@ -250,6 +269,8 @@ class Order {
       store: storeInfo,
       items: itemsList,
       sourcePlatform: json['sourcePlatform']?.toString() ?? 'manual',
+      backendId: backendId,
+      backendName: backendName,
     );
   }
 

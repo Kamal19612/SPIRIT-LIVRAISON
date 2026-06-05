@@ -129,15 +129,15 @@ class LocalDatabase {
       )
     ''');
 
-    // ── Sources externes (intégrations plateformes) ──────────────────────────
+    // ── Backends Spring (STORE-ALL, etc.) ───────────────────────────────────
     await db.execute('''
-      CREATE TABLE external_sources (
-        id           INTEGER PRIMARY KEY AUTOINCREMENT,
-        name         TEXT    NOT NULL,
-        platformType TEXT    NOT NULL DEFAULT 'webhook',
-        configJson   TEXT    NOT NULL DEFAULT '{}',
-        isActive     INTEGER NOT NULL DEFAULT 1,
-        createdAt    TEXT    NOT NULL
+      CREATE TABLE backends (
+        id        INTEGER PRIMARY KEY AUTOINCREMENT,
+        name      TEXT    NOT NULL,
+        origin    TEXT    NOT NULL,
+        storeCode TEXT    NOT NULL DEFAULT '',
+        isActive  INTEGER NOT NULL DEFAULT 1,
+        createdAt TEXT    NOT NULL
       )
     ''');
 
@@ -161,7 +161,6 @@ class LocalDatabase {
       {'key': 'contact_phone', 'value': ''},
       {'key': 'contact_email', 'value': ''},
       {'key': 'support_whatsapp', 'value': ''},
-      {'key': AppConfig.storeApiOriginConfigKey, 'value': ''},
     ]) {
       batch.insert('app_config', entry,
           conflictAlgorithm: ConflictAlgorithm.ignore);
@@ -195,6 +194,55 @@ class LocalDatabase {
     if (oldVersion < 12) {
       await _migrateToV12ManualApiOrigin(db);
     }
+    if (oldVersion < 13) {
+      await _migrateToV13Backends(db);
+    }
+  }
+
+  /// Table `backends` + import de l’ancienne URL unique (`store_api_origin`).
+  Future<void> _migrateToV13Backends(Database db) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS backends (
+        id        INTEGER PRIMARY KEY AUTOINCREMENT,
+        name      TEXT    NOT NULL,
+        origin    TEXT    NOT NULL,
+        storeCode TEXT    NOT NULL DEFAULT '',
+        isActive  INTEGER NOT NULL DEFAULT 1,
+        createdAt TEXT    NOT NULL
+      )
+    ''');
+
+    final existing = await db.query('backends', limit: 1);
+    if (existing.isNotEmpty) return;
+
+    final originRows = await db.query(
+      'app_config',
+      where: 'key = ?',
+      whereArgs: [AppConfig.storeApiOriginConfigKey],
+      limit: 1,
+    );
+    final platformRows = await db.query(
+      'app_config',
+      where: 'key = ?',
+      whereArgs: ['store_source_platform'],
+      limit: 1,
+    );
+
+    final rawOrigin = originRows.isEmpty ? '' : (originRows.first['value'] as String? ?? '');
+    final origin = normalizeBackendOrigin(rawOrigin);
+    if (origin == null || origin.isEmpty) return;
+
+    final storeCode = platformRows.isEmpty
+        ? ''
+        : (platformRows.first['value'] as String? ?? '').trim().toLowerCase();
+
+    await db.insert('backends', {
+      'name': 'Serveur principal',
+      'origin': origin,
+      'storeCode': storeCode,
+      'isActive': 1,
+      'createdAt': DateTime.now().toIso8601String(),
+    });
   }
 
   /// Supprime les URL « baked-in » du build ; la config backend devient 100 % manuelle.

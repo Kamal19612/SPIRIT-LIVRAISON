@@ -1,6 +1,7 @@
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 
+import '../models/backend_server_model.dart';
 import '../models/order_model.dart';
 import 'store_api_bridge.dart';
 
@@ -8,21 +9,25 @@ class OrderService {
   OrderService._();
   static final OrderService instance = OrderService._();
 
-  /// Réponse [Page] Spring (`content`) ou liste brute.
-  List<Order> _parseOrdersFromResponseData(dynamic data) {
+  List<Order> _parseOrdersFromResponseData(
+    dynamic data, {
+    required BackendServer backend,
+  }) {
+    List<Map<String, dynamic>> rawMaps = [];
     if (data is Map && data['content'] is List) {
-      return (data['content'] as List)
-          .whereType<Map>()
-          .map((e) => Order.fromJson(Map<String, dynamic>.from(e)))
-          .toList();
+      rawMaps = (data['content'] as List).whereType<Map>().map((e) => Map<String, dynamic>.from(e)).toList();
+    } else if (data is List) {
+      rawMaps = data.whereType<Map>().map((e) => Map<String, dynamic>.from(e)).toList();
     }
-    if (data is List) {
-      return data
-          .whereType<Map>()
-          .map((e) => Order.fromJson(Map<String, dynamic>.from(e)))
-          .toList();
-    }
-    return const [];
+    return rawMaps
+        .map(
+          (e) => Order.fromJson(
+            e,
+            backendId: backend.id,
+            backendName: backend.name,
+          ),
+        )
+        .toList();
   }
 
   void _logStoreApi(String method, String url, int? status, Object? detail) {
@@ -31,104 +36,154 @@ class OrderService {
     debugPrint('[StoreAPI] $method $url → $s $detail');
   }
 
-  /// Liste admin (toutes commandes) — [JwtResponse] rôle ADMIN / SUPER_ADMIN / MANAGER.
+  Future<List<BackendServer>> _sessionBackends() =>
+      StoreApiBridge.instance.getAuthenticatedBackends();
+
   Future<List<Order>> fetchAdminOrders({int size = 200}) async {
-    final origin = await StoreApiBridge.instance.apiOrigin;
-    final token = await StoreApiBridge.instance.jwt;
-    if (origin == null || token == null) {
-      throw Exception('API boutique non configurée / session absente (JWT).');
+    final backends = await _sessionBackends();
+    if (backends.isEmpty) {
+      throw Exception('Aucun serveur connecté (JWT).');
     }
-    final url = '$origin/api/admin/orders?size=$size&sort=createdAt,desc';
-    final res = await StoreApiBridge.instance.dio.get<dynamic>(
-      url,
-      options: Options(
-        headers: {'Authorization': 'Bearer $token', 'Accept': 'application/json'},
-      ),
-    );
-    final code = res.statusCode ?? 0;
-    _logStoreApi('GET', url, code, 'orders');
-    if (code == 200) {
-      final list = _parseOrdersFromResponseData(res.data);
-      if (kDebugMode) {
-        debugPrint('[StoreAPI] admin orders count=${list.length}');
+
+    final merged = <Order>[];
+    for (final backend in backends) {
+      final token = await StoreApiBridge.instance.getJwt(backend.id!);
+      if (token == null) continue;
+      final url = '${backend.origin}/api/admin/orders?size=$size&sort=createdAt,desc';
+      final res = await StoreApiBridge.instance.dio.get<dynamic>(
+        url,
+        options: Options(
+          headers: {'Authorization': 'Bearer $token', 'Accept': 'application/json'},
+        ),
+      );
+      final code = res.statusCode ?? 0;
+      _logStoreApi('GET', url, code, 'admin orders (${backend.name})');
+      if (code == 200) {
+        merged.addAll(_parseOrdersFromResponseData(res.data, backend: backend));
+      } else if (code == 401 || code == 403) {
+        if (kDebugMode) {
+          debugPrint('[StoreAPI] admin refusé sur ${backend.name}');
+        }
       }
-      return list;
     }
-    if (code == 401 || code == 403) {
-      throw Exception('Accès refusé (rôle admin requis sur la boutique).');
+
+    if (merged.isEmpty) {
+      throw Exception('Aucune commande admin (vérifiez rôle manager/admin).');
     }
-    String msg = 'Liste admin ($code)';
-    final data = res.data;
-    if (data is Map && data['message'] != null) {
-      msg = data['message'].toString();
-    }
-    throw Exception(msg);
+    merged.sort((a, b) => b.createdAt.compareTo(a.createdAt));
+    return merged;
   }
 
-  /// Statistiques dashboard Spring (`/api/admin/dashboard/stats`).
   Future<Map<String, dynamic>?> fetchAdminDashboardStats() async {
-    final origin = await StoreApiBridge.instance.apiOrigin;
-    final token = await StoreApiBridge.instance.jwt;
-    if (origin == null || token == null) {
-      throw Exception('API boutique non configurée / session absente (JWT).');
+    final backends = await _sessionBackends();
+    if (backends.isEmpty) return null;
+
+    int totalOrders = 0;
+    int confirmedOrders = 0;
+    for (final backend in backends) {
+      final token = await StoreApiBridge.instance.getJwt(backend.id!);
+      if (token == null) continue;
+      final url = '${backend.origin}/api/admin/dashboard/stats';
+      try {
+        final res = await StoreApiBridge.instance.dio.get<dynamic>(
+          url,
+          options: Options(
+            headers: {'Authorization': 'Bearer $token', 'Accept': 'application/json'},
+          ),
+        );
+        if (res.statusCode == 200 && res.data is Map) {
+          final map = Map<String, dynamic>.from(res.data as Map);
+          totalOrders += (map['totalOrders'] as num?)?.toInt() ?? 0;
+          confirmedOrders += (map['confirmedOrders'] as num?)?.toInt() ?? 0;
+        }
+      } catch (_) {}
     }
-    final url = '$origin/api/admin/dashboard/stats';
-    final res = await StoreApiBridge.instance.dio.get<dynamic>(
-      url,
-      options: Options(
-        headers: {'Authorization': 'Bearer $token', 'Accept': 'application/json'},
-      ),
-    );
-    final code = res.statusCode ?? 0;
-    _logStoreApi('GET', url, code, 'stats');
-    if (code == 200 && res.data is Map) {
-      return Map<String, dynamic>.from(res.data as Map);
-    }
-    if (code == 401 || code == 403) {
-      throw Exception('Accès refusé (statistiques admin).');
-    }
-    if (code >= 200 && code < 300) {
-      return null;
-    }
-    String msg = 'Stats admin ($code)';
-    final data = res.data;
-    if (data is Map && data['message'] != null) {
-      msg = data['message'].toString();
-    }
-    throw Exception(msg);
+
+    if (totalOrders == 0 && confirmedOrders == 0) return null;
+    return {
+      'totalOrders': totalOrders,
+      'confirmedOrders': confirmedOrders,
+    };
   }
 
   Future<List<Order>> fetchAvailableOrders() async {
-    final origin = await StoreApiBridge.instance.apiOrigin;
-    final token = await StoreApiBridge.instance.jwt;
-    if (origin == null || token == null) {
-      throw Exception('API boutique non configurée / session absente (JWT).');
-    }
-    final res = await StoreApiBridge.instance.dio.get<dynamic>(
-      '$origin/api/delivery/orders',
-      options: Options(headers: {'Authorization': 'Bearer $token', 'Accept': 'application/json'}),
-    );
-    return _parseOrdersFromResponseData(res.data);
+    return _fetchDeliveryList('/api/delivery/orders');
   }
 
   Future<List<Order>> fetchMyOrders() async {
-    final origin = await StoreApiBridge.instance.apiOrigin;
-    final token = await StoreApiBridge.instance.jwt;
-    if (origin == null || token == null) {
-      throw Exception('API boutique non configurée / session absente (JWT).');
+    return _fetchDeliveryList('/api/delivery/orders/my-orders');
+  }
+
+  Future<List<Order>> _fetchDeliveryList(String path) async {
+    final backends = await _sessionBackends();
+    if (backends.isEmpty) {
+      throw Exception('Aucun serveur connecté. Reconnectez-vous.');
     }
-    final res = await StoreApiBridge.instance.dio.get<dynamic>(
-      '$origin/api/delivery/orders/my-orders',
-      options: Options(headers: {'Authorization': 'Bearer $token', 'Accept': 'application/json'}),
+
+    final merged = <Order>[];
+    Object? lastError;
+
+    for (final backend in backends) {
+      final token = await StoreApiBridge.instance.getJwt(backend.id!);
+      if (token == null) continue;
+      try {
+        final res = await StoreApiBridge.instance.dio.get<dynamic>(
+          '${backend.origin}$path',
+          options: Options(
+            headers: {'Authorization': 'Bearer $token', 'Accept': 'application/json'},
+          ),
+        );
+        if ((res.statusCode ?? 0) == 200) {
+          merged.addAll(_parseOrdersFromResponseData(res.data, backend: backend));
+        }
+      } catch (e) {
+        lastError = e;
+      }
+    }
+
+    if (merged.isEmpty && lastError != null) {
+      throw Exception('Impossible de charger les commandes ($lastError)');
+    }
+
+    merged.sort((a, b) => b.createdAt.compareTo(a.createdAt));
+    return merged;
+  }
+
+  Future<BackendServer> _backendForOrder(Order order) async {
+    final id = order.backendId;
+    if (id == null) {
+      throw Exception('Commande sans serveur d’origine.');
+    }
+    final backends = await _sessionBackends();
+    final backend = backends.where((b) => b.id == id).firstOrNull;
+    if (backend == null) {
+      throw Exception('Session expirée pour ce serveur.');
+    }
+    return backend;
+  }
+
+  Future<Order> claimOrder(Order order) async {
+    final backend = await _backendForOrder(order);
+    return StoreApiBridge.instance.claimDeliveryOrder(
+      backend: backend,
+      storeOrderId: order.id,
     );
-    return _parseOrdersFromResponseData(res.data);
   }
 
-  Future<Order> claimOrder(int orderId) async {
-    return StoreApiBridge.instance.claimDeliveryOrder(orderId);
+  Future<void> completeDelivery(Order order, String code) async {
+    final backend = await _backendForOrder(order);
+    await StoreApiBridge.instance.completeDeliveryOnStore(
+      backend: backend,
+      storeOrderId: order.id,
+      code: code,
+    );
   }
+}
 
-  Future<void> completeDelivery(int orderId, String code) async {
-    await StoreApiBridge.instance.completeDeliveryOnStore(orderId, code);
+extension _FirstOrNull<E> on Iterable<E> {
+  E? get firstOrNull {
+    final it = iterator;
+    if (!it.moveNext()) return null;
+    return it.current;
   }
 }
