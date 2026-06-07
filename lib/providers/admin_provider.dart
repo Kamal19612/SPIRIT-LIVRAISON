@@ -8,16 +8,16 @@ import '../services/order_service.dart';
 import '../services/store_api_bridge.dart';
 
 class AdminProvider extends ChangeNotifier {
-  List<UserModel>      _drivers = [];
-  List<Order>          _orders  = [];
+  List<UserModel> _drivers = [];
+  List<Order> _orders = [];
   Map<String, dynamic>? _apiStats;
-  bool    _isLoading = false;
+  bool _isLoading = false;
   String? _error;
 
   List<UserModel> get drivers => _drivers;
-  List<Order>     get orders  => _orders;
-  bool    get isLoading => _isLoading;
-  String? get error     => _error;
+  List<Order> get orders => _orders;
+  bool get isLoading => _isLoading;
+  String? get error => _error;
 
   int get totalOrders {
     final v = _apiStats?['totalOrders'];
@@ -66,6 +66,7 @@ class AdminProvider extends ChangeNotifier {
   }
 
   Future<String> createDriver({
+    required String username,
     required String lastName,
     required String firstName,
     required String phone,
@@ -81,7 +82,8 @@ class AdminProvider extends ChangeNotifier {
     String? cnibIssueDate,
     String? cnibExpiryDate,
   }) async {
-    final username = await DriversDao.instance.createDriver(
+    final loginId = await DriversDao.instance.createDriver(
+      username: username,
       lastName: lastName,
       firstName: firstName,
       phone: phone,
@@ -98,7 +100,7 @@ class AdminProvider extends ChangeNotifier {
       cnibExpiryDate: cnibExpiryDate,
     );
     await loadDrivers();
-    return username;
+    return loginId;
   }
 
   Future<void> deleteDriver(int id) async {

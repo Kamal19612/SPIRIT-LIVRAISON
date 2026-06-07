@@ -1,8 +1,6 @@
 import 'dart:convert';
 
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
-
-import '../config/app_config.dart';
 import '../database/backends_dao.dart';
 import '../database/local_database.dart';
 import '../models/backend_login_status.dart';
@@ -98,11 +96,7 @@ class AuthService {
     if (backends.isEmpty) {
       final localUser = await _tryLocalLogin(usernameOrEmail, password);
       if (localUser == null) {
-        throw Exception(
-          'Identifiants incorrects, ou ajoutez d’abord un serveur backend '
-          '(Admin → Paramètres → Intégrations). Compte admin local : '
-          '${AppConfig.defaultLocalAdminUsername}.',
-        );
+        throw Exception('Identifiants incorrects.');
       }
       final user = await _persistLocalSession(localUser);
       return AuthLoginResult(user: user, authenticatedBackends: const []);
@@ -138,10 +132,7 @@ class AuthService {
         final user = await _persistLocalSession(localUser);
         return AuthLoginResult(user: user, authenticatedBackends: const []);
       }
-      throw Exception(
-        lastError ??
-            'Aucun serveur n’a accepté ces identifiants. Vérifiez URL et compte livreur.',
-      );
+      throw Exception(lastError ?? 'Identifiants incorrects.');
     }
 
     await StoreApiBridge.instance.setAuthenticatedBackendIds(

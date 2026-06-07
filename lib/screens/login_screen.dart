@@ -1,7 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import '../config/app_config.dart';
-import '../database/backends_dao.dart';
 import '../providers/app_config_provider.dart';
 import '../providers/auth_provider.dart';
 import '../widgets/backend_connection_banner.dart';
@@ -19,7 +17,6 @@ class _LoginScreenState extends State<LoginScreen> {
   final _passwordController = TextEditingController();
   bool _obscurePassword = true;
   String? _localError;
-  int _backendCount = 0;
 
   static const Color _surface = Color(0xFFF9FAFB);
   static const Color _border = Color(0xFFE5E7EB);
@@ -36,10 +33,7 @@ class _LoginScreenState extends State<LoginScreen> {
     final auth = context.read<AuthProvider>();
     if (auth.isAuthenticated) {
       _routeByRole(auth);
-      return;
     }
-    final backends = await BackendsDao.instance.getAll(activeOnly: true);
-    if (mounted) setState(() => _backendCount = backends.length);
   }
 
   void _routeByRole(AuthProvider auth) {
@@ -94,8 +88,6 @@ class _LoginScreenState extends State<LoginScreen> {
                 children: [
                   _buildHeader(config, primary),
                   const SizedBox(height: 28),
-                  _buildConnectionBanner(),
-                  const SizedBox(height: 20),
                   _buildFormCard(
                     auth: auth,
                     primary: primary,
@@ -153,42 +145,6 @@ class _LoginScreenState extends State<LoginScreen> {
     );
   }
 
-  Widget _buildConnectionBanner() {
-    final hasBackend = _backendCount > 0;
-    final bg = hasBackend ? const Color(0xFFEFF6FF) : const Color(0xFFF0FDF4);
-    final border = hasBackend ? const Color(0xFFBFDBFE) : const Color(0xFFBBF7D0);
-    final fg = hasBackend ? const Color(0xFF1E40AF) : const Color(0xFF166534);
-    final icon = hasBackend ? Icons.cloud_done_outlined : Icons.storage_outlined;
-
-    final text = hasBackend
-        ? '$_backendCount serveur${_backendCount > 1 ? 's' : ''} configuré${_backendCount > 1 ? 's' : ''}.\n'
-            'Connexion JWT sur chaque serveur actif (livreur ou manager).'
-        : 'Mode local — admin : ${AppConfig.defaultLocalAdminUsername}. '
-            'Ajoutez des serveurs : Admin → Paramètres → Intégrations.';
-
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-      decoration: BoxDecoration(
-        color: bg,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: border),
-      ),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Icon(icon, size: 20, color: fg),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Text(
-              text,
-              style: TextStyle(fontSize: 12, height: 1.4, color: fg, fontWeight: FontWeight.w500),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
   Widget _buildFormCard({
     required AuthProvider auth,
     required Color primary,
@@ -218,7 +174,7 @@ class _LoginScreenState extends State<LoginScreen> {
                 autocorrect: false,
                 decoration: _fieldDecoration(
                   label: 'Identifiant',
-                  hint: 'Email ou nom d’utilisateur',
+                  hint: 'Nom d’utilisateur ou téléphone',
                   icon: Icons.person_outline,
                 ),
                 validator: (v) =>

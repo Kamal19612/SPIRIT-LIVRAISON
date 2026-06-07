@@ -1,8 +1,10 @@
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 
+import '../database/orders_dao.dart';
 import '../models/backend_server_model.dart';
 import '../models/order_model.dart';
+import 'auth_service.dart';
 import 'store_api_bridge.dart';
 
 class OrderService {
@@ -107,11 +109,26 @@ class OrderService {
   }
 
   Future<List<Order>> fetchAvailableOrders() async {
+    if (await _useLocalOrders()) {
+      return OrdersDao.instance.getAvailableOrders();
+    }
     return _fetchDeliveryList('/api/delivery/orders');
   }
 
   Future<List<Order>> fetchMyOrders() async {
+    if (await _useLocalOrders()) {
+      final userId = await AuthService.instance.getCurrentUserId();
+      if (userId == null) {
+        throw Exception('Session expirée. Reconnectez-vous.');
+      }
+      return OrdersDao.instance.getMyOrders(userId);
+    }
     return _fetchDeliveryList('/api/delivery/orders/my-orders');
+  }
+
+  Future<bool> _useLocalOrders() async {
+    final backends = await _sessionBackends();
+    return backends.isEmpty;
   }
 
   Future<List<Order>> _fetchDeliveryList(String path) async {
@@ -163,6 +180,19 @@ class OrderService {
   }
 
   Future<Order> claimOrder(Order order) async {
+    if (await _useLocalOrders()) {
+      final userId = await AuthService.instance.getCurrentUserId();
+      if (userId == null) {
+        throw Exception('Session expirée. Reconnectez-vous.');
+      }
+      await OrdersDao.instance.claimOrderLocal(order.id, userId);
+      final updated = await OrdersDao.instance.getOrderById(order.id);
+      if (updated == null) {
+        throw Exception('Commande introuvable.');
+      }
+      return updated;
+    }
+
     final backend = await _backendForOrder(order);
     return StoreApiBridge.instance.claimDeliveryOrder(
       backend: backend,
@@ -171,6 +201,15 @@ class OrderService {
   }
 
   Future<void> completeDelivery(Order order, String code) async {
+    if (await _useLocalOrders()) {
+      final expected = order.confirmationCode?.trim() ?? '';
+      if (expected.isNotEmpty && expected != code.trim()) {
+        throw Exception('Code de confirmation incorrect.');
+      }
+      await OrdersDao.instance.completeOrderLocal(order.id);
+      return;
+    }
+
     final backend = await _backendForOrder(order);
     await StoreApiBridge.instance.completeDeliveryOnStore(
       backend: backend,

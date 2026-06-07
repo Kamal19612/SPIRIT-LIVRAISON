@@ -19,7 +19,7 @@ class AdminSettingsScreen extends StatelessWidget {
             child: const TabBar(
               tabs: [
                 Tab(icon: Icon(Icons.palette_outlined), text: 'Application'),
-                Tab(icon: Icon(Icons.cloud_outlined), text: 'IntÃ©grations'),
+                Tab(icon: Icon(Icons.cloud_outlined), text: 'Intégrations'),
               ],
             ),
           ),
@@ -37,8 +37,6 @@ class AdminSettingsScreen extends StatelessWidget {
   }
 }
 
-// â”€â”€ Onglet configuration application â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-
 class _AppConfigTab extends StatefulWidget {
   const _AppConfigTab();
 
@@ -47,11 +45,11 @@ class _AppConfigTab extends StatefulWidget {
 }
 
 class _AppConfigTabState extends State<_AppConfigTab> {
-  final _nameCtrl     = TextEditingController();
-  final _logoCtrl     = TextEditingController();
-  final _colorCtrl    = TextEditingController();
-  final _phoneCtrl    = TextEditingController();
-  final _emailCtrl    = TextEditingController();
+  final _nameCtrl = TextEditingController();
+  final _logoCtrl = TextEditingController();
+  final _colorCtrl = TextEditingController();
+  final _phoneCtrl = TextEditingController();
+  final _emailCtrl = TextEditingController();
   final _whatsappCtrl = TextEditingController();
   bool _isSaving = false;
   bool _initialized = false;
@@ -61,11 +59,11 @@ class _AppConfigTabState extends State<_AppConfigTab> {
     super.didChangeDependencies();
     if (!_initialized) {
       final config = context.read<AppConfigProvider>();
-      _nameCtrl.text      = config.appName;
-      _logoCtrl.text      = config.logoUrl;
-      _colorCtrl.text     = config.primaryColorHex;
-      _phoneCtrl.text     = config.contactPhone;
-      _emailCtrl.text     = config.contactEmail;
+      _nameCtrl.text = config.appName;
+      _logoCtrl.text = config.logoUrl;
+      _colorCtrl.text = config.primaryColorHex;
+      _phoneCtrl.text = config.contactPhone;
+      _emailCtrl.text = config.contactEmail;
       _whatsappCtrl.text = config.supportWhatsapp;
       _initialized = true;
     }
@@ -86,18 +84,18 @@ class _AppConfigTabState extends State<_AppConfigTab> {
     setState(() => _isSaving = true);
     try {
       await context.read<AppConfigProvider>().save(
-        appName:           _nameCtrl.text.trim(),
-        logoUrl:           _logoCtrl.text.trim(),
-        primaryColorHex:   _colorCtrl.text.trim(),
-        contactPhone:      _phoneCtrl.text.trim(),
-        contactEmail:      _emailCtrl.text.trim(),
-        supportWhatsapp:   _whatsappCtrl.text.trim(),
-      );
+            appName: _nameCtrl.text.trim(),
+            logoUrl: _logoCtrl.text.trim(),
+            primaryColorHex: _colorCtrl.text.trim(),
+            contactPhone: _phoneCtrl.text.trim(),
+            contactEmail: _emailCtrl.text.trim(),
+            supportWhatsapp: _whatsappCtrl.text.trim(),
+          );
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('Configuration sauvegardÃ©e'),
+            content: Text('Configuration sauvegardée'),
             behavior: SnackBarBehavior.floating,
           ),
         );
@@ -130,14 +128,12 @@ class _AppConfigTabState extends State<_AppConfigTab> {
               border: Border.all(color: const Color(0xFFBBF7D0)),
             ),
             child: const Text(
-              'Ces rÃ©glages dÃ©finissent lâ€™identitÃ© affichÃ©e aux livreurs et les coordonnÃ©es '
-              'utiles pour lâ€™administration (support, contact).',
+              'Ces réglages définissent l\'identité affichée aux livreurs et les coordonnées '
+              'utiles pour l\'administration (support, contact).',
               style: TextStyle(fontSize: 12, color: Color(0xFF166534), height: 1.35),
             ),
           ),
           const SizedBox(height: 16),
-
-          // â”€â”€ AperÃ§u logo â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
           Center(
             child: Stack(
               alignment: Alignment.bottomRight,
@@ -172,9 +168,8 @@ class _AppConfigTabState extends State<_AppConfigTab> {
             ),
           ),
           const SizedBox(height: 20),
-
           _Section(
-            title: 'IdentitÃ©',
+            title: 'Identité',
             children: [
               AdminSettingField(
                 ctrl: _nameCtrl,
@@ -192,7 +187,6 @@ class _AppConfigTabState extends State<_AppConfigTab> {
             ],
           ),
           const SizedBox(height: 16),
-
           _Section(
             title: 'Apparence',
             children: [
@@ -222,13 +216,12 @@ class _AppConfigTabState extends State<_AppConfigTab> {
             ],
           ),
           const SizedBox(height: 16),
-
           _Section(
             title: 'Support & administration',
             children: [
               AdminSettingField(
                 ctrl: _phoneCtrl,
-                label: 'TÃ©lÃ©phone support',
+                label: 'Téléphone support',
                 icon: Icons.phone_outlined,
                 hint: '+224 6XX XXX XXX',
                 keyboardType: TextInputType.phone,
@@ -260,28 +253,27 @@ class _AppConfigTabState extends State<_AppConfigTab> {
               border: Border.all(color: const Color(0xFFE5E7EB)),
             ),
             child: const Text(
-              'Lâ€™URL du serveur API et les sources de commandes se configurent '
-              'dans lâ€™onglet IntÃ©grations.',
+              'L\'URL du serveur API et les sources de commandes se configurent '
+              'dans l\'onglet Intégrations.',
               style: TextStyle(fontSize: 12, color: Color(0xFF4B5563), height: 1.35),
             ),
           ),
           const SizedBox(height: 24),
-
           ElevatedButton.icon(
             onPressed: _isSaving ? null : _save,
             icon: _isSaving
                 ? const SizedBox(
-                    height: 16, width: 16,
-                    child: CircularProgressIndicator(
-                        strokeWidth: 2, color: Colors.white))
+                    height: 16,
+                    width: 16,
+                    child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                  )
                 : const Icon(Icons.save_outlined),
             label: Text(_isSaving ? 'Sauvegarde...' : 'Sauvegarder'),
             style: ElevatedButton.styleFrom(
               backgroundColor: Theme.of(context).colorScheme.primary,
               foregroundColor: Colors.white,
               padding: const EdgeInsets.symmetric(vertical: 14),
-              shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12)),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
             ),
           ),
         ],

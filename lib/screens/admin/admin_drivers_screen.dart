@@ -7,6 +7,7 @@ import 'package:provider/provider.dart';
 
 import '../../models/user_model.dart';
 import '../../providers/admin_provider.dart';
+import '../../services/driver_credentials_storage.dart';
 import '../../services/cnib_text_recognition_service.dart';
 import '../../services/driver_identity_storage.dart';
 import '../../utils/cnib_ocr_parser.dart';
@@ -51,43 +52,49 @@ class AdminDriversScreen extends StatelessWidget {
       body: admin.isLoading
           ? const Center(child: CircularProgressIndicator())
           : admin.drivers.isEmpty
-              ? Center(
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      const Icon(Icons.delivery_dining,
-                          size: 64, color: Color(0xFFD1D5DB)),
-                      const SizedBox(height: 12),
-                      const Text('Aucun livreur enregistré',
-                          style: TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.w600,
-                              color: Color(0xFF6B7280))),
-                      const SizedBox(height: 8),
-                      ElevatedButton.icon(
-                        onPressed: () => _showAddDriverSheet(context),
-                        icon: const Icon(Icons.add),
-                        label: const Text('Ajouter un livreur'),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: primary,
-                          foregroundColor: Colors.white,
-                        ),
-                      ),
-                    ],
+          ? Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  const Icon(
+                    Icons.delivery_dining,
+                    size: 64,
+                    color: Color(0xFFD1D5DB),
                   ),
-                )
-              : RefreshIndicator(
-                  onRefresh: admin.loadDrivers,
-                  child: ListView.builder(
-                    padding: const EdgeInsets.all(12),
-                    itemCount: admin.drivers.length,
-                    itemBuilder: (_, i) => _DriverTile(
-                      driver: admin.drivers[i],
-                      onOpenDetail: () =>
-                          _showDriverDetail(context, admin.drivers[i]),
+                  const SizedBox(height: 12),
+                  const Text(
+                    'Aucun livreur enregistré',
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w600,
+                      color: Color(0xFF6B7280),
                     ),
                   ),
+                  const SizedBox(height: 8),
+                  ElevatedButton.icon(
+                    onPressed: () => _showAddDriverSheet(context),
+                    icon: const Icon(Icons.add),
+                    label: const Text('Ajouter un livreur'),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: primary,
+                      foregroundColor: Colors.white,
+                    ),
+                  ),
+                ],
+              ),
+            )
+          : RefreshIndicator(
+              onRefresh: admin.loadDrivers,
+              child: ListView.builder(
+                padding: const EdgeInsets.all(12),
+                itemCount: admin.drivers.length,
+                itemBuilder: (_, i) => _DriverTile(
+                  driver: admin.drivers[i],
+                  onOpenDetail: () =>
+                      _showDriverDetail(context, admin.drivers[i]),
                 ),
+              ),
+            ),
       floatingActionButton: admin.drivers.isEmpty
           ? null
           : FloatingActionButton.extended(
@@ -105,10 +112,7 @@ class _DriverTile extends StatelessWidget {
   final UserModel driver;
   final VoidCallback onOpenDetail;
 
-  const _DriverTile({
-    required this.driver,
-    required this.onOpenDetail,
-  });
+  const _DriverTile({required this.driver, required this.onOpenDetail});
 
   @override
   Widget build(BuildContext context) {
@@ -117,8 +121,9 @@ class _DriverTile extends StatelessWidget {
     final label = driver.displayName.isNotEmpty
         ? driver.displayName
         : driver.username;
-    final initial =
-        label.isNotEmpty ? label.substring(0, 1).toUpperCase() : '?';
+    final initial = label.isNotEmpty
+        ? label.substring(0, 1).toUpperCase()
+        : '?';
 
     return Container(
       margin: const EdgeInsets.only(bottom: 10),
@@ -148,10 +153,9 @@ class _DriverTile extends StatelessWidget {
                     CircleAvatar(
                       radius: 24,
                       backgroundColor: driver.active
-                          ? Theme.of(context)
-                              .colorScheme
-                              .primary
-                              .withValues(alpha: 0.12)
+                          ? Theme.of(
+                              context,
+                            ).colorScheme.primary.withValues(alpha: 0.12)
                           : const Color(0xFFF3F4F6),
                       child: Text(
                         initial,
@@ -172,23 +176,28 @@ class _DriverTile extends StatelessWidget {
                           Text(
                             driver.displayName,
                             style: const TextStyle(
-                                fontSize: 14,
-                                fontWeight: FontWeight.w700,
-                                color: Color(0xFF111827)),
+                              fontSize: 14,
+                              fontWeight: FontWeight.w700,
+                              color: Color(0xFF111827),
+                            ),
                           ),
                           if (driver.displayPhone != null) ...[
                             const SizedBox(height: 2),
                             Text(
                               driver.displayPhone!,
                               style: const TextStyle(
-                                  fontSize: 12, color: Color(0xFF6B7280)),
+                                fontSize: 12,
+                                color: Color(0xFF6B7280),
+                              ),
                             ),
                           ],
                           const SizedBox(height: 2),
                           Text(
                             'Connexion : ${driver.username}',
                             style: const TextStyle(
-                                fontSize: 10, color: Color(0xFF9CA3AF)),
+                              fontSize: 10,
+                              color: Color(0xFF9CA3AF),
+                            ),
                           ),
                           Row(
                             children: [
@@ -208,8 +217,9 @@ class _DriverTile extends StatelessWidget {
                                       ? 'Pos: ${driver.lat!.toStringAsFixed(4)}, ${driver.lng!.toStringAsFixed(4)}'
                                       : 'Position inconnue',
                                   style: const TextStyle(
-                                      fontSize: 11,
-                                      color: Color(0xFF9CA3AF)),
+                                    fontSize: 11,
+                                    color: Color(0xFF9CA3AF),
+                                  ),
                                 ),
                               ),
                             ],
@@ -261,9 +271,36 @@ class _DriverTile extends StatelessWidget {
 
 // ── Détail livreur ──────────────────────────────────────────────────────────
 
-class _DriverDetailSheet extends StatelessWidget {
+class _DriverDetailSheet extends StatefulWidget {
   final UserModel driver;
   const _DriverDetailSheet({required this.driver});
+
+  @override
+  State<_DriverDetailSheet> createState() => _DriverDetailSheetState();
+}
+
+class _DriverDetailSheetState extends State<_DriverDetailSheet> {
+  String? _password;
+  bool _passwordVisible = false;
+  bool _passwordLoading = true;
+
+  UserModel get driver => widget.driver;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadPassword();
+  }
+
+  Future<void> _loadPassword() async {
+    final pwd = await DriverCredentialsStorage.instance.getPassword(driver.id);
+    if (mounted) {
+      setState(() {
+        _password = pwd;
+        _passwordLoading = false;
+      });
+    }
+  }
 
   Future<void> _confirmDelete(BuildContext context) async {
     final ok = await showDialog<bool>(
@@ -281,9 +318,13 @@ class _DriverDetailSheet extends StatelessWidget {
           ),
           TextButton(
             onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('Supprimer',
-                style: TextStyle(
-                    color: Color(0xFFDC2626), fontWeight: FontWeight.w700)),
+            child: const Text(
+              'Supprimer',
+              style: TextStyle(
+                color: Color(0xFFDC2626),
+                fontWeight: FontWeight.w700,
+              ),
+            ),
           ),
         ],
       ),
@@ -332,10 +373,6 @@ class _DriverDetailSheet extends StatelessWidget {
               driver.displayName,
               style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w800),
             ),
-            Text(
-              'Compte : ${driver.username}',
-              style: const TextStyle(fontSize: 12, color: Color(0xFF6B7280)),
-            ),
             const SizedBox(height: 16),
             if (path != null && path.isNotEmpty && !kIsWeb)
               ClipRRect(
@@ -350,6 +387,10 @@ class _DriverDetailSheet extends StatelessWidget {
                 ),
               ),
             if (path != null && path.isNotEmpty) const SizedBox(height: 16),
+            _detailSection('Compte de connexion', [
+              _DetailRow('Identifiant', driver.username),
+              _loginPasswordRow(),
+            ]),
             _detailSection('Coordonnées', [
               _DetailRow('Téléphone', driver.displayPhone ?? '—'),
               _DetailRow('Statut', driver.active ? 'Actif' : 'Inactif'),
@@ -357,7 +398,10 @@ class _DriverDetailSheet extends StatelessWidget {
             _detailSection('Identité (CNIB)', [
               _DetailRow('Nom', driver.lastName ?? '—'),
               _DetailRow('Prénoms', driver.firstName ?? '—'),
-              _DetailRow('N° identifiant national', driver.cnibNationalId ?? '—'),
+              _DetailRow(
+                'N° identifiant national',
+                driver.cnibNationalId ?? '—',
+              ),
               _DetailRow('N° série carte', driver.cnibSerial ?? '—'),
               _DetailRow('Né(e) le', driver.birthDate ?? '—'),
               _DetailRow('À', driver.birthPlace ?? '—'),
@@ -370,8 +414,10 @@ class _DriverDetailSheet extends StatelessWidget {
                 driver.cnibOcrText!.trim().isNotEmpty) ...[
               const SizedBox(height: 8),
               ExpansionTile(
-                title: const Text('Texte OCR brut',
-                    style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
+                title: const Text(
+                  'Texte OCR brut',
+                  style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+                ),
                 children: [
                   SelectableText(
                     driver.cnibOcrText!,
@@ -384,8 +430,10 @@ class _DriverDetailSheet extends StatelessWidget {
             OutlinedButton.icon(
               onPressed: () => _confirmDelete(context),
               icon: const Icon(Icons.delete_outline, color: Color(0xFFDC2626)),
-              label: const Text('Supprimer ce livreur',
-                  style: TextStyle(color: Color(0xFFDC2626))),
+              label: const Text(
+                'Supprimer ce livreur',
+                style: TextStyle(color: Color(0xFFDC2626)),
+              ),
             ),
             const SizedBox(height: 8),
             TextButton(
@@ -394,6 +442,73 @@ class _DriverDetailSheet extends StatelessWidget {
             ),
           ],
         ),
+      ),
+    );
+  }
+
+  Widget _loginPasswordRow() {
+    if (_passwordLoading) {
+      return const Padding(
+        padding: EdgeInsets.symmetric(vertical: 6),
+        child: Row(
+          children: [
+            SizedBox(
+              width: 110,
+              child: Text(
+                'Mot de passe',
+                style: TextStyle(fontSize: 12, color: Color(0xFF6B7280)),
+              ),
+            ),
+            SizedBox(
+              width: 16,
+              height: 16,
+              child: CircularProgressIndicator(strokeWidth: 2),
+            ),
+          ],
+        ),
+      );
+    }
+
+    final value = _password?.trim();
+    final display = value == null || value.isEmpty
+        ? '— (non enregistré)'
+        : (_passwordVisible ? value : '•' * value.length.clamp(6, 24));
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 6),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const SizedBox(
+            width: 110,
+            child: Text(
+              'Mot de passe',
+              style: TextStyle(fontSize: 12, color: Color(0xFF6B7280)),
+            ),
+          ),
+          Expanded(
+            child: SelectableText(
+              display,
+              style: const TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+                color: Color(0xFF111827),
+              ),
+            ),
+          ),
+          if (value != null && value.isNotEmpty)
+            IconButton(
+              visualDensity: VisualDensity.compact,
+              padding: EdgeInsets.zero,
+              constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+              icon: Icon(
+                _passwordVisible ? Icons.visibility_off_outlined : Icons.visibility_outlined,
+                size: 18,
+                color: const Color(0xFF6B7280),
+              ),
+              onPressed: () => setState(() => _passwordVisible = !_passwordVisible),
+            ),
+        ],
       ),
     );
   }
@@ -452,9 +567,10 @@ class _DetailRow extends StatelessWidget {
             child: Text(
               value,
               style: const TextStyle(
-                  fontSize: 13,
-                  fontWeight: FontWeight.w600,
-                  color: Color(0xFF111827)),
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+                color: Color(0xFF111827),
+              ),
             ),
           ),
         ],
@@ -484,6 +600,7 @@ class _AddDriverSheetState extends State<_AddDriverSheet> {
   final _issueDateCtrl = TextEditingController();
   final _expiryCtrl = TextEditingController();
   final _phoneCtrl = TextEditingController();
+  final _usernameCtrl = TextEditingController();
   final _passCtrl = TextEditingController();
   final _pass2Ctrl = TextEditingController();
   final _picker = ImagePicker();
@@ -509,6 +626,7 @@ class _AddDriverSheetState extends State<_AddDriverSheet> {
     _issueDateCtrl.dispose();
     _expiryCtrl.dispose();
     _phoneCtrl.dispose();
+    _usernameCtrl.dispose();
     _passCtrl.dispose();
     _pass2Ctrl.dispose();
     super.dispose();
@@ -558,11 +676,15 @@ class _AddDriverSheetState extends State<_AddDriverSheet> {
         if (p.expiryDate != null) _expiryCtrl.text = p.expiryDate!;
       });
     } else if (!kIsWeb && (Platform.isAndroid || Platform.isIOS)) {
-      setState(() => _error =
-          'Aucun texte détecté. Vérifiez la netteté de la photo ou saisissez les champs à la main.');
+      setState(
+        () => _error =
+            'Aucun texte détecté. Vérifiez la netteté de la photo ou saisissez les champs à la main.',
+      );
     } else {
-      setState(() => _error =
-          'OCR disponible sur Android et iOS. Saisissez les champs à la main.');
+      setState(
+        () => _error =
+            'OCR disponible sur Android et iOS. Saisissez les champs à la main.',
+      );
     }
   }
 
@@ -580,21 +702,22 @@ class _AddDriverSheetState extends State<_AddDriverSheet> {
       final stored = await persistCnibPhoto(_pickedPath!);
       if (!mounted) return;
       final username = await context.read<AdminProvider>().createDriver(
-            lastName: _lastCtrl.text.trim(),
-            firstName: _firstCtrl.text.trim(),
-            phone: _phoneCtrl.text.trim(),
-            password: _passCtrl.text.trim(),
-            cnibImagePath: stored,
-            cnibOcrText: _ocrRaw.isEmpty ? null : _ocrRaw,
-            cnibNationalId: _nationalIdCtrl.text.trim(),
-            cnibSerial: _serialCtrl.text.trim(),
-            birthDate: _birthDateCtrl.text.trim(),
-            birthPlace: _birthPlaceCtrl.text.trim(),
-            gender: _gender,
-            profession: _professionCtrl.text.trim(),
-            cnibIssueDate: _issueDateCtrl.text.trim(),
-            cnibExpiryDate: _expiryCtrl.text.trim(),
-          );
+        username: _usernameCtrl.text.trim(),
+        lastName: _lastCtrl.text.trim(),
+        firstName: _firstCtrl.text.trim(),
+        phone: _phoneCtrl.text.trim(),
+        password: _passCtrl.text.trim(),
+        cnibImagePath: stored,
+        cnibOcrText: _ocrRaw.isEmpty ? null : _ocrRaw,
+        cnibNationalId: _nationalIdCtrl.text.trim(),
+        cnibSerial: _serialCtrl.text.trim(),
+        birthDate: _birthDateCtrl.text.trim(),
+        birthPlace: _birthPlaceCtrl.text.trim(),
+        gender: _gender,
+        profession: _professionCtrl.text.trim(),
+        cnibIssueDate: _issueDateCtrl.text.trim(),
+        cnibExpiryDate: _expiryCtrl.text.trim(),
+      );
       if (!mounted) return;
       Navigator.pop(context);
       ScaffoldMessenger.of(context).showSnackBar(
@@ -606,9 +729,10 @@ class _AddDriverSheetState extends State<_AddDriverSheet> {
     } catch (e) {
       setState(() {
         _isSaving = false;
-        _error = e.toString().contains('UNIQUE')
-            ? 'Un compte avec ce numéro existe déjà'
-            : e.toString();
+        _error = e.toString().contains('UNIQUE') ||
+                e.toString().contains('déjà utilisé')
+            ? 'Cet identifiant est déjà utilisé'
+            : e.toString().replaceFirst('Exception: ', '').replaceFirst('ArgumentError: ', '');
       });
     }
   }
@@ -663,8 +787,12 @@ class _AddDriverSheetState extends State<_AddDriverSheet> {
               const SizedBox(height: 6),
               Text(
                 'Modèle CNIB Burkina Faso : photographiez le recto, lancez la lecture, '
-                'complétez le téléphone et le mot de passe.',
-                style: TextStyle(fontSize: 12, color: Colors.grey.shade600, height: 1.35),
+                'puis renseignez l’identifiant de connexion, le téléphone et le mot de passe.',
+                style: TextStyle(
+                  fontSize: 12,
+                  color: Colors.grey.shade600,
+                  height: 1.35,
+                ),
               ),
               const SizedBox(height: 12),
               if (_error != null)
@@ -677,7 +805,10 @@ class _AddDriverSheetState extends State<_AddDriverSheet> {
                   ),
                   child: Text(
                     _error!,
-                    style: const TextStyle(color: Color(0xFFDC2626), fontSize: 12),
+                    style: const TextStyle(
+                      color: Color(0xFFDC2626),
+                      fontSize: 12,
+                    ),
                   ),
                 ),
 
@@ -686,7 +817,9 @@ class _AddDriverSheetState extends State<_AddDriverSheet> {
                 children: [
                   Expanded(
                     child: OutlinedButton.icon(
-                      onPressed: _isSaving ? null : () => _pickImage(ImageSource.gallery),
+                      onPressed: _isSaving
+                          ? null
+                          : () => _pickImage(ImageSource.gallery),
                       icon: const Icon(Icons.photo_library_outlined, size: 18),
                       label: const Text('Galerie'),
                     ),
@@ -694,7 +827,9 @@ class _AddDriverSheetState extends State<_AddDriverSheet> {
                   const SizedBox(width: 8),
                   Expanded(
                     child: OutlinedButton.icon(
-                      onPressed: _isSaving ? null : () => _pickImage(ImageSource.camera),
+                      onPressed: _isSaving
+                          ? null
+                          : () => _pickImage(ImageSource.camera),
                       icon: const Icon(Icons.photo_camera_outlined, size: 18),
                       label: const Text('Appareil'),
                     ),
@@ -820,7 +955,9 @@ class _AddDriverSheetState extends State<_AddDriverSheet> {
                       ),
                       items: const [
                         DropdownMenuItem<String?>(
-                            value: null, child: Text('—')),
+                          value: null,
+                          child: Text('—'),
+                        ),
                         DropdownMenuItem(value: 'M', child: Text('M')),
                         DropdownMenuItem(value: 'F', child: Text('F')),
                       ],
@@ -881,8 +1018,31 @@ class _AddDriverSheetState extends State<_AddDriverSheet> {
                   prefixIcon: Icon(Icons.phone_outlined),
                   hintText: '+226 …',
                 ),
-                validator: (v) =>
-                    (v == null || v.trim().length < 6) ? 'Numéro invalide' : null,
+                validator: (v) => (v == null || v.trim().length < 6)
+                    ? 'Numéro invalide'
+                    : null,
+              ),
+              const SizedBox(height: 12),
+              TextFormField(
+                controller: _usernameCtrl,
+                autocorrect: false,
+                textCapitalization: TextCapitalization.none,
+                decoration: const InputDecoration(
+                  labelText: 'Identifiant de connexion *',
+                  border: OutlineInputBorder(),
+                  prefixIcon: Icon(Icons.badge_outlined),
+                  hintText: 'ex. amadou.diallo',
+                  helperText: 'Utilisé à la connexion (sans serveur). Lettres, chiffres, . _ -',
+                  helperMaxLines: 2,
+                ),
+                validator: (v) {
+                  final t = v?.trim() ?? '';
+                  if (t.length < 3) return 'Min. 3 caractères';
+                  if (!RegExp(r'^[a-zA-Z0-9._-]+$').hasMatch(t)) {
+                    return 'Caractères autorisés : lettres, chiffres, . _ -';
+                  }
+                  return null;
+                },
               ),
               const SizedBox(height: 12),
               TextFormField(
@@ -901,8 +1061,9 @@ class _AddDriverSheetState extends State<_AddDriverSheet> {
                     onPressed: () => setState(() => _obscure1 = !_obscure1),
                   ),
                 ),
-                validator: (v) =>
-                    (v == null || v.trim().length < 6) ? 'Min 6 caractères' : null,
+                validator: (v) => (v == null || v.trim().length < 6)
+                    ? 'Min 6 caractères'
+                    : null,
               ),
               const SizedBox(height: 12),
               TextFormField(
@@ -938,7 +1099,9 @@ class _AddDriverSheetState extends State<_AddDriverSheet> {
                       backgroundColor: primary,
                       foregroundColor: Colors.white,
                       padding: const EdgeInsets.symmetric(
-                          horizontal: 24, vertical: 12),
+                        horizontal: 24,
+                        vertical: 12,
+                      ),
                       shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(10),
                       ),
@@ -952,8 +1115,10 @@ class _AddDriverSheetState extends State<_AddDriverSheet> {
                               color: Colors.white,
                             ),
                           )
-                        : const Text('Créer le compte',
-                            style: TextStyle(fontWeight: FontWeight.w700)),
+                        : const Text(
+                            'Créer le compte',
+                            style: TextStyle(fontWeight: FontWeight.w700),
+                          ),
                   ),
                 ],
               ),

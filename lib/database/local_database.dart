@@ -383,13 +383,53 @@ class LocalDatabase {
   }
 
   Future<UserModel?> authenticateLocalUser(
-    String username,
+    String identifier,
     String plainPassword,
+  ) async {
+    final trimmed = identifier.trim();
+    if (trimmed.isEmpty) return null;
+
+    final hash = _hash(plainPassword);
+    final usernames = <String>{trimmed.toLowerCase()};
+
+    final digits = trimmed.replaceAll(RegExp(r'\D'), '');
+    if (digits.isNotEmpty) {
+      usernames.add('u$digits');
+      usernames.add(digits);
+    }
+
+    for (final username in usernames) {
+      final user = await _userByUsernameAndPassword(username, hash);
+      if (user != null) return user;
+    }
+
+    if (digits.length >= 6) {
+      final rows = await db.query(
+        'users',
+        where: 'password = ?',
+        whereArgs: [hash],
+      );
+      for (final row in rows) {
+        if ((row['active'] as int? ?? 1) != 1) continue;
+        final phoneDigits =
+            (row['phone'] as String? ?? '').replaceAll(RegExp(r'\D'), '');
+        if (phoneDigits == digits) {
+          return UserModel.fromSqlite(row);
+        }
+      }
+    }
+
+    return null;
+  }
+
+  Future<UserModel?> _userByUsernameAndPassword(
+    String username,
+    String passwordHash,
   ) async {
     final rows = await db.query(
       'users',
       where: 'username = ? AND password = ?',
-      whereArgs: [username, _hash(plainPassword)],
+      whereArgs: [username, passwordHash],
       limit: 1,
     );
     if (rows.isEmpty) return null;

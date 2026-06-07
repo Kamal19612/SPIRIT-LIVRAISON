@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:crypto/crypto.dart';
 import 'package:sqflite/sqflite.dart';
 import '../models/user_model.dart';
+import '../services/driver_credentials_storage.dart';
 import 'local_database.dart';
 
 class DriversDao {
@@ -16,27 +17,27 @@ class DriversDao {
       sha256.convert(utf8.encode(password)).toString();
 
   UserModel _fromRow(Map<String, dynamic> row) => UserModel(
-        id: row['id'] as int,
-        username: row['username'] as String,
-        role: row['role'] as String,
-        active: (row['active'] as int? ?? 1) == 1,
-        lat: row['lat'] != null ? (row['lat'] as num).toDouble() : null,
-        lng: row['lng'] != null ? (row['lng'] as num).toDouble() : null,
-        fcmToken: row['fcm_token'] as String?,
-        firstName: row['first_name'] as String?,
-        lastName: row['last_name'] as String?,
-        phone: row['phone'] as String?,
-        cnibImagePath: row['cnib_image_path'] as String?,
-        cnibOcrText: row['cnib_ocr_text'] as String?,
-        cnibNationalId: row['cnib_national_id'] as String?,
-        cnibSerial: row['cnib_serial'] as String?,
-        birthDate: row['birth_date'] as String?,
-        birthPlace: row['birth_place'] as String?,
-        gender: row['gender'] as String?,
-        profession: row['profession'] as String?,
-        cnibIssueDate: row['cnib_issue_date'] as String?,
-        cnibExpiryDate: row['cnib_expiry_date'] as String?,
-      );
+    id: row['id'] as int,
+    username: row['username'] as String,
+    role: row['role'] as String,
+    active: (row['active'] as int? ?? 1) == 1,
+    lat: row['lat'] != null ? (row['lat'] as num).toDouble() : null,
+    lng: row['lng'] != null ? (row['lng'] as num).toDouble() : null,
+    fcmToken: row['fcm_token'] as String?,
+    firstName: row['first_name'] as String?,
+    lastName: row['last_name'] as String?,
+    phone: row['phone'] as String?,
+    cnibImagePath: row['cnib_image_path'] as String?,
+    cnibOcrText: row['cnib_ocr_text'] as String?,
+    cnibNationalId: row['cnib_national_id'] as String?,
+    cnibSerial: row['cnib_serial'] as String?,
+    birthDate: row['birth_date'] as String?,
+    birthPlace: row['birth_place'] as String?,
+    gender: row['gender'] as String?,
+    profession: row['profession'] as String?,
+    cnibIssueDate: row['cnib_issue_date'] as String?,
+    cnibExpiryDate: row['cnib_expiry_date'] as String?,
+  );
 
   static const _driverSelect = '''
       u.id, u.username, u.role, u.active, u.fcm_token,
@@ -60,12 +61,15 @@ class DriversDao {
   }
 
   Future<UserModel?> getDriverById(int id) async {
-    final rows = await _db.rawQuery('''
+    final rows = await _db.rawQuery(
+      '''
       SELECT $_driverSelect
       FROM users u
       LEFT JOIN driver_locations dl ON dl.driver_id = u.id
       WHERE u.id = ? AND u.role = 'DELIVERY_AGENT'
-    ''', [id]);
+    ''',
+      [id],
+    );
     if (rows.isEmpty) return null;
     return _fromRow(rows.first);
   }
@@ -81,18 +85,12 @@ class DriversDao {
     return rows.map(_fromRow).toList();
   }
 
-  Future<String> _uniqueUsername(String base) async {
-    var u = base;
-    var n = 0;
-    while (true) {
-      final rows = await _db.query('users', where: 'username = ?', whereArgs: [u]);
-      if (rows.isEmpty) return u;
-      n++;
-      u = '${base}_$n';
-    }
+  /// Normalise l’identifiant saisi dans le formulaire admin.
+  static String normalizeLoginUsername(String raw) {
+    return raw.trim().toLowerCase().replaceAll(RegExp(r'\s+'), '_');
   }
 
-  /// [phone] sert de base au nom d'utilisateur de connexion (chiffres conservés).
+  /// [phone] — conservé pour repli connexion par numéro (legacy).
   static String usernameFromPhone(String phone) {
     final digits = phone.replaceAll(RegExp(r'\D'), '');
     if (digits.isEmpty) return 'livreur';
@@ -101,8 +99,9 @@ class DriversDao {
 
   // ── Écriture ───────────────────────────────────────────────────────────────
 
-  /// Retourne le nom d’utilisateur de connexion généré.
+  /// Retourne l’identifiant de connexion enregistré.
   Future<String> createDriver({
+    required String username,
     required String lastName,
     required String firstName,
     required String phone,
@@ -118,9 +117,26 @@ class DriversDao {
     String? cnibIssueDate,
     String? cnibExpiryDate,
   }) async {
-    final username = await _uniqueUsername(usernameFromPhone(phone));
-    await _db.insert('users', {
-      'username': username,
+    final loginId = normalizeLoginUsername(username);
+    if (loginId.length < 3) {
+      throw ArgumentError('Identifiant trop court (min. 3 caractères).');
+    }
+    if (!RegExp(r'^[a-z0-9._-]+$').hasMatch(loginId)) {
+      throw ArgumentError('Identifiant invalide (lettres, chiffres, . _ -).');
+    }
+
+    final taken = await _db.query(
+      'users',
+      where: 'username = ?',
+      whereArgs: [loginId],
+      limit: 1,
+    );
+    if (taken.isNotEmpty) {
+      throw Exception('Cet identifiant est déjà utilisé.');
+    }
+
+    final id = await _db.insert('users', {
+      'username': loginId,
       'password': _hash(password),
       'role': 'DELIVERY_AGENT',
       'active': 1,
@@ -138,7 +154,8 @@ class DriversDao {
       'cnib_issue_date': _nullIfEmpty(cnibIssueDate),
       'cnib_expiry_date': _nullIfEmpty(cnibExpiryDate),
     });
-    return username;
+    await DriverCredentialsStorage.instance.setPassword(id, password);
+    return loginId;
   }
 
   static String? _nullIfEmpty(String? s) {
@@ -172,12 +189,21 @@ class DriversDao {
       } catch (_) {}
     }
 
-    await _db.delete('order_assignments', where: 'driverId = ?', whereArgs: [id]);
+    await _db.delete(
+      'order_assignments',
+      where: 'driverId = ?',
+      whereArgs: [id],
+    );
     await _db.rawUpdate(
       'UPDATE orders SET deliveryAgentId = NULL WHERE deliveryAgentId = ?',
       [id],
     );
-    await _db.delete('driver_locations', where: 'driver_id = ?', whereArgs: [id]);
+    await _db.delete(
+      'driver_locations',
+      where: 'driver_id = ?',
+      whereArgs: [id],
+    );
+    await DriverCredentialsStorage.instance.deletePassword(id);
     await _db.delete(
       'users',
       where: 'id = ? AND role = ?',
@@ -186,15 +212,11 @@ class DriversDao {
   }
 
   Future<void> updateLocation(int driverId, double lat, double lng) async {
-    await _db.insert(
-      'driver_locations',
-      {
-        'driver_id': driverId,
-        'lat': lat,
-        'lng': lng,
-        'updated_at': DateTime.now().toIso8601String(),
-      },
-      conflictAlgorithm: ConflictAlgorithm.replace,
-    );
+    await _db.insert('driver_locations', {
+      'driver_id': driverId,
+      'lat': lat,
+      'lng': lng,
+      'updated_at': DateTime.now().toIso8601String(),
+    }, conflictAlgorithm: ConflictAlgorithm.replace);
   }
 }
