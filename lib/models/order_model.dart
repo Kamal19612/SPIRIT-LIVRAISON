@@ -228,6 +228,17 @@ class Order {
         storeInfo = OrderStoreInfo.fromJson(Map<String, dynamic>.from(rawStore));
       } catch (_) {}
     }
+    if (storeInfo == null) {
+      final storeName = json['storeName']?.toString().trim() ?? '';
+      final storeCode = json['storeCode']?.toString().trim().toLowerCase() ?? '';
+      if (storeName.isNotEmpty || storeCode.isNotEmpty) {
+        storeInfo = OrderStoreInfo(
+          id: (json['storeId'] as num?)?.toInt(),
+          name: storeName,
+          code: storeCode,
+        );
+      }
+    }
 
     final rawItems = json['items'];
     final List<OrderItem> itemsList = [];

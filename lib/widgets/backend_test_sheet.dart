@@ -122,7 +122,8 @@ class _BackendTestSheetState extends State<BackendTestSheet> {
             const SizedBox(height: 8),
             const Text(
               'Étape 1 : API publique (réseau).\n'
-              'Étape 2–3 : login JWT + commandes livraison (si identifiants fournis).',
+              'Étapes 2–5 : login JWT, livraison, commandes et livreurs admin '
+              '(si identifiants fournis).',
               style: TextStyle(fontSize: 11.5, height: 1.45, color: Color(0xFF4B5563)),
             ),
             const SizedBox(height: 14),
@@ -137,7 +138,7 @@ class _BackendTestSheetState extends State<BackendTestSheet> {
               ctrl: _passCtrl,
               label: 'Mot de passe test (optionnel)',
               icon: Icons.lock_outline,
-              hint: 'pour valider JWT + API livraison',
+              hint: 'pour valider JWT + API livraison + admin',
               obscure: _obscure,
               suffix: IconButton(
                 icon: Icon(_obscure ? Icons.visibility_outlined : Icons.visibility_off_outlined),

@@ -41,6 +41,7 @@ class BackendsDao {
     required String name,
     required String origin,
     String storeCode = '',
+    int? managerStoreId,
     bool isActive = true,
   }) async {
     final normalized = normalizeBackendOrigin(origin);
@@ -53,6 +54,7 @@ class BackendsDao {
         name: name.trim(),
         origin: normalized,
         storeCode: storeCode.trim().toLowerCase(),
+        managerStoreId: managerStoreId,
         isActive: isActive,
       ).toInsertMap(),
     );
@@ -63,6 +65,7 @@ class BackendsDao {
     required String name,
     required String origin,
     String storeCode = '',
+    int? managerStoreId,
     bool? isActive,
   }) async {
     final normalized = normalizeBackendOrigin(origin);
@@ -73,6 +76,7 @@ class BackendsDao {
       'name': name.trim(),
       'origin': normalized,
       'storeCode': storeCode.trim().toLowerCase(),
+      'managerStoreId': managerStoreId,
     };
     if (isActive != null) data['isActive'] = isActive ? 1 : 0;
     await _db.update('backends', data, where: 'id = ?', whereArgs: [id]);

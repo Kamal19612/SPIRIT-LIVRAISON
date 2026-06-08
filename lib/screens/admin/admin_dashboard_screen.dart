@@ -26,6 +26,38 @@ class AdminDashboardScreen extends StatelessWidget {
       child: ListView(
         padding: const EdgeInsets.all(16),
         children: [
+          if (admin.error != null || admin.driversError != null) ...[
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: const Color(0xFFFEF2F2),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: const Color(0xFFFECACA)),
+              ),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Icon(Icons.error_outline, size: 18, color: Color(0xFFDC2626)),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      [
+                        if (admin.error != null) admin.error!,
+                        if (admin.driversError != null) admin.driversError!,
+                      ].join('\n'),
+                      style: const TextStyle(
+                        fontSize: 12,
+                        height: 1.35,
+                        color: Color(0xFFDC2626),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 16),
+          ],
+
           // ── Stats ──────────────────────────────────────────────────────
           Row(
             children: [

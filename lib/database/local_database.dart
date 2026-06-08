@@ -132,12 +132,13 @@ class LocalDatabase {
     // ── Backends Spring (STORE-ALL, etc.) ───────────────────────────────────
     await db.execute('''
       CREATE TABLE backends (
-        id        INTEGER PRIMARY KEY AUTOINCREMENT,
-        name      TEXT    NOT NULL,
-        origin    TEXT    NOT NULL,
-        storeCode TEXT    NOT NULL DEFAULT '',
-        isActive  INTEGER NOT NULL DEFAULT 1,
-        createdAt TEXT    NOT NULL
+        id             INTEGER PRIMARY KEY AUTOINCREMENT,
+        name           TEXT    NOT NULL,
+        origin         TEXT    NOT NULL,
+        storeCode      TEXT    NOT NULL DEFAULT '',
+        managerStoreId INTEGER,
+        isActive       INTEGER NOT NULL DEFAULT 1,
+        createdAt      TEXT    NOT NULL
       )
     ''');
 
@@ -196,6 +197,17 @@ class LocalDatabase {
     }
     if (oldVersion < 13) {
       await _migrateToV13Backends(db);
+    }
+    if (oldVersion < 14) {
+      await _migrateToV14BackendManagerStoreId(db);
+    }
+  }
+
+  Future<void> _migrateToV14BackendManagerStoreId(Database db) async {
+    final cols = await db.rawQuery('PRAGMA table_info(backends)');
+    final names = cols.map((c) => c['name'] as String).toSet();
+    if (!names.contains('managerStoreId')) {
+      await db.execute('ALTER TABLE backends ADD COLUMN managerStoreId INTEGER');
     }
   }
 

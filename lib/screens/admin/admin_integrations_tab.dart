@@ -149,15 +149,15 @@ class _GuideHeader extends StatelessWidget {
           ),
           const SizedBox(height: 10),
           Text(
-            'Ajoutez un serveur par boutique ou instance STORE-ALL. '
+            'Ajoutez un serveur par boutique ou instance backend (STORE-ALL, etc.). '
             'À la connexion, l’app s’authentifie sur chaque serveur actif '
-            'et fusionne les commandes livraison dans un seul tableau de bord.',
+            'et agrège commandes et livreurs dans un seul tableau de bord.',
             style: TextStyle(fontSize: 12, height: 1.45, color: primary.withValues(alpha: 0.85)),
           ),
           const SizedBox(height: 8),
           Text(
             '1. URL sans /api (ex. http://192.168.0.12:8085)\n'
-            '2. Testez : API publique + login JWT optionnel + commandes livraison\n'
+            '2. Testez : API publique + login JWT + livraison + commandes admin\n'
             '3. Le livreur se connecte avec son compte sur chaque serveur actif',
             style: const TextStyle(fontSize: 11.5, height: 1.5, color: Color(0xFF4B5563)),
           ),
@@ -263,6 +263,11 @@ class _BackendTileState extends State<_BackendTile> {
                         'Code boutique : ${b.storeCode}',
                         style: const TextStyle(fontSize: 11, color: Color(0xFF9CA3AF)),
                       ),
+                    if (b.managerStoreId != null)
+                      Text(
+                        'ID manager : ${b.managerStoreId}',
+                        style: const TextStyle(fontSize: 11, color: Color(0xFF9CA3AF)),
+                      ),
                   ],
                 ),
               ),
@@ -310,6 +315,7 @@ class _BackendEditorSheetState extends State<_BackendEditorSheet> {
   final _nameCtrl = TextEditingController();
   final _originCtrl = TextEditingController();
   final _storeCodeCtrl = TextEditingController();
+  final _managerStoreIdCtrl = TextEditingController();
   bool _isSaving = false;
 
   bool get _isEdit => widget.existing?.id != null;
@@ -322,6 +328,9 @@ class _BackendEditorSheetState extends State<_BackendEditorSheet> {
       _nameCtrl.text = e.name;
       _originCtrl.text = e.origin;
       _storeCodeCtrl.text = e.storeCode;
+      if (e.managerStoreId != null) {
+        _managerStoreIdCtrl.text = e.managerStoreId.toString();
+      }
     }
   }
 
@@ -330,7 +339,14 @@ class _BackendEditorSheetState extends State<_BackendEditorSheet> {
     _nameCtrl.dispose();
     _originCtrl.dispose();
     _storeCodeCtrl.dispose();
+    _managerStoreIdCtrl.dispose();
     super.dispose();
+  }
+
+  int? _parseManagerStoreId() {
+    final raw = _managerStoreIdCtrl.text.trim();
+    if (raw.isEmpty) return null;
+    return int.tryParse(raw);
   }
 
   void _openTestSheet() {
@@ -373,12 +389,14 @@ class _BackendEditorSheetState extends State<_BackendEditorSheet> {
           name: name,
           origin: origin,
           storeCode: _storeCodeCtrl.text.trim(),
+          managerStoreId: _parseManagerStoreId(),
         );
       } else {
         await BackendsDao.instance.insert(
           name: name,
           origin: origin,
           storeCode: _storeCodeCtrl.text.trim(),
+          managerStoreId: _parseManagerStoreId(),
         );
       }
       if (mounted) Navigator.pop(context, true);
@@ -410,7 +428,7 @@ class _BackendEditorSheetState extends State<_BackendEditorSheet> {
             ctrl: _nameCtrl,
             label: 'Nom affiché',
             icon: Icons.label_outline,
-            hint: 'Boutique Centre, STORE-ALL Prod…',
+            hint: 'Boutique Centre, Prod Ouest…',
           ),
           const SizedBox(height: 10),
           AdminSettingField(
@@ -425,7 +443,15 @@ class _BackendEditorSheetState extends State<_BackendEditorSheet> {
             ctrl: _storeCodeCtrl,
             label: 'Code boutique (optionnel)',
             icon: Icons.tag_outlined,
-            hint: 'pour X-Store-Code sur les réglages publics',
+            hint: 'ex. spirit — pour X-Store-Code / résolution auto',
+          ),
+          const SizedBox(height: 10),
+          AdminSettingField(
+            ctrl: _managerStoreIdCtrl,
+            label: 'ID boutique manager (optionnel)',
+            icon: Icons.numbers_outlined,
+            hint: 'ex. 1 — si l’API /manager/{id}/ ne se résout pas seule',
+            keyboardType: TextInputType.number,
           ),
           const SizedBox(height: 16),
           Row(

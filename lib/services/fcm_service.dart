@@ -106,10 +106,17 @@ Future<void> _showLocalNotificationFromMessage(RemoteMessage msg) async {
   }
 
   if (type == 'new_order') {
-    // Admin only; on réutilise canal "delivery_orders" pour rester simple.
     await NotificationService.instance.showStatusNotification(
       title: title.isNotEmpty ? title : 'Nouvelle commande',
       body: body.isNotEmpty ? body : (orderNumber.isNotEmpty ? 'Commande #$orderNumber' : 'Nouvelle commande'),
+    );
+    return;
+  }
+
+  if (type == 'staff_changed') {
+    await NotificationService.instance.showStatusNotification(
+      title: title.isNotEmpty ? title : 'Équipe mise à jour',
+      body: body.isNotEmpty ? body : 'Liste des livreurs actualisée',
     );
     return;
   }

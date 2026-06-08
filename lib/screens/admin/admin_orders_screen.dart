@@ -57,6 +57,35 @@ class _AdminOrdersScreenState extends State<AdminOrdersScreen> {
       backgroundColor: const Color(0xFFF9FAFB),
       body: Column(
         children: [
+          if (admin.error != null)
+            Container(
+              width: double.infinity,
+              margin: const EdgeInsets.fromLTRB(12, 8, 12, 0),
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+              decoration: BoxDecoration(
+                color: const Color(0xFFFEF2F2),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: const Color(0xFFFECACA)),
+              ),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Icon(Icons.error_outline, size: 18, color: Color(0xFFDC2626)),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      admin.error!,
+                      style: const TextStyle(
+                        fontSize: 12,
+                        height: 1.35,
+                        color: Color(0xFFDC2626),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+
           // ── Info synchronisation ─────────────────────────────────────
           Container(
             width: double.infinity,
@@ -75,8 +104,8 @@ class _AdminOrdersScreenState extends State<AdminOrdersScreen> {
                 const SizedBox(width: 10),
                 Expanded(
                   child: Text(
-                    'Commandes agrégées depuis les serveurs backend connectés. '
-                    'Configurez les serveurs dans Paramètres → Intégrations.',
+                    'Commandes agrégées et synchronisées en temps réel depuis '
+                    'tous les serveurs connectés (Paramètres → Intégrations).',
                     style: TextStyle(
                       fontSize: 12,
                       height: 1.35,

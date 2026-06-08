@@ -25,15 +25,27 @@ class BackendConnectionTestResult {
   bool get deliveryTested =>
       _step('API livraison') != null && !(_step('API livraison')!.skipped);
   bool get deliveryOk => _step('API livraison')?.ok ?? false;
+  bool get adminTested =>
+      _step('API admin commandes') != null && !(_step('API admin commandes')!.skipped);
+  bool get adminOk => _step('API admin commandes')?.ok ?? false;
+  bool get adminUsersTested =>
+      _step('API admin livreurs') != null && !(_step('API admin livreurs')!.skipped);
+  bool get adminUsersOk => _step('API admin livreurs')?.ok ?? false;
 
   bool get isSuccess {
     if (!publicOk) return false;
     if (jwtTested && !jwtOk) return false;
     if (deliveryTested && !deliveryOk) return false;
+    if (adminTested && !adminOk) return false;
+    if (adminUsersTested && !adminUsersOk) return false;
     return true;
   }
 
-  bool get isPartial => publicOk && ((jwtTested && !jwtOk) || (deliveryTested && !deliveryOk));
+  bool get isPartial => publicOk &&
+      ((jwtTested && !jwtOk) ||
+          (deliveryTested && !deliveryOk) ||
+          (adminTested && !adminOk) ||
+          (adminUsersTested && !adminUsersOk));
 
   String get headline {
     if (!publicOk) return 'Échec réseau';

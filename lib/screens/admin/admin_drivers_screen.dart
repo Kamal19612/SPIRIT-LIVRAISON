@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
 
+import '../../models/backend_server_model.dart';
 import '../../models/user_model.dart';
 import '../../providers/admin_provider.dart';
 import '../../services/driver_credentials_storage.dart';
@@ -49,52 +50,118 @@ class AdminDriversScreen extends StatelessWidget {
 
     return Scaffold(
       backgroundColor: const Color(0xFFF9FAFB),
-      body: admin.isLoading
-          ? const Center(child: CircularProgressIndicator())
-          : admin.drivers.isEmpty
-          ? Center(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
+      body: Column(
+        children: [
+          if (admin.driversError != null)
+            Container(
+              width: double.infinity,
+              margin: const EdgeInsets.fromLTRB(12, 8, 12, 0),
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+              decoration: BoxDecoration(
+                color: const Color(0xFFFEF2F2),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: const Color(0xFFFECACA)),
+              ),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Icon(
-                    Icons.delivery_dining,
-                    size: 64,
-                    color: Color(0xFFD1D5DB),
-                  ),
-                  const SizedBox(height: 12),
-                  const Text(
-                    'Aucun livreur enregistré',
-                    style: TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.w600,
-                      color: Color(0xFF6B7280),
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  ElevatedButton.icon(
-                    onPressed: () => _showAddDriverSheet(context),
-                    icon: const Icon(Icons.add),
-                    label: const Text('Ajouter un livreur'),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: primary,
-                      foregroundColor: Colors.white,
+                  const Icon(Icons.error_outline, size: 18, color: Color(0xFFDC2626)),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      admin.driversError!,
+                      style: const TextStyle(
+                        fontSize: 12,
+                        height: 1.35,
+                        color: Color(0xFFDC2626),
+                      ),
                     ),
                   ),
                 ],
               ),
-            )
-          : RefreshIndicator(
-              onRefresh: admin.loadDrivers,
-              child: ListView.builder(
-                padding: const EdgeInsets.all(12),
-                itemCount: admin.drivers.length,
-                itemBuilder: (_, i) => _DriverTile(
-                  driver: admin.drivers[i],
-                  onOpenDetail: () =>
-                      _showDriverDetail(context, admin.drivers[i]),
-                ),
-              ),
             ),
+          Container(
+            width: double.infinity,
+            margin: const EdgeInsets.fromLTRB(12, 8, 12, 0),
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            decoration: BoxDecoration(
+              color: const Color(0xFFEFF6FF),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: const Color(0xFFBFDBFE)),
+            ),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Icon(Icons.cloud_sync_outlined,
+                    size: 18, color: Theme.of(context).colorScheme.primary),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    'Livreurs agrégés depuis chaque serveur backend connecté. '
+                    'La photo CNIB reste stockée localement sur l’appareil.',
+                    style: TextStyle(
+                      fontSize: 12,
+                      height: 1.35,
+                      color: Theme.of(context)
+                          .colorScheme
+                          .primary
+                          .withValues(alpha: 0.95),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          Expanded(
+            child: admin.isLoading
+                ? const Center(child: CircularProgressIndicator())
+                : admin.drivers.isEmpty
+                    ? Center(
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            const Icon(
+                              Icons.delivery_dining,
+                              size: 64,
+                              color: Color(0xFFD1D5DB),
+                            ),
+                            const SizedBox(height: 12),
+                            const Text(
+                              'Aucun livreur enregistré',
+                              style: TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.w600,
+                                color: Color(0xFF6B7280),
+                              ),
+                            ),
+                            const SizedBox(height: 8),
+                            ElevatedButton.icon(
+                              onPressed: () => _showAddDriverSheet(context),
+                              icon: const Icon(Icons.add),
+                              label: const Text('Ajouter un livreur'),
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: primary,
+                                foregroundColor: Colors.white,
+                              ),
+                            ),
+                          ],
+                        ),
+                      )
+                    : RefreshIndicator(
+                        onRefresh: admin.loadDrivers,
+                        child: ListView.builder(
+                          padding: const EdgeInsets.all(12),
+                          itemCount: admin.drivers.length,
+                          itemBuilder: (_, i) => _DriverTile(
+                            driver: admin.drivers[i],
+                            onOpenDetail: () =>
+                                _showDriverDetail(context, admin.drivers[i]),
+                          ),
+                        ),
+                      ),
+          ),
+        ],
+      ),
       floatingActionButton: admin.drivers.isEmpty
           ? null
           : FloatingActionButton.extended(
@@ -192,12 +259,38 @@ class _DriverTile extends StatelessWidget {
                             ),
                           ],
                           const SizedBox(height: 2),
-                          Text(
-                            'Connexion : ${driver.username}',
-                            style: const TextStyle(
-                              fontSize: 10,
-                              color: Color(0xFF9CA3AF),
-                            ),
+                          Row(
+                            children: [
+                              Text(
+                                'Connexion : ${driver.username}',
+                                style: const TextStyle(
+                                  fontSize: 10,
+                                  color: Color(0xFF9CA3AF),
+                                ),
+                              ),
+                              if (driver.backendName != null &&
+                                  driver.backendName!.isNotEmpty) ...[
+                                const SizedBox(width: 8),
+                                Container(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 6,
+                                    vertical: 2,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: const Color(0xFFF3F4F6),
+                                    borderRadius: BorderRadius.circular(6),
+                                  ),
+                                  child: Text(
+                                    driver.backendName!,
+                                    style: const TextStyle(
+                                      fontSize: 9,
+                                      color: Color(0xFF6B7280),
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ],
                           ),
                           Row(
                             children: [
@@ -247,7 +340,7 @@ class _DriverTile extends StatelessWidget {
               children: [
                 Switch(
                   value: driver.active,
-                  onChanged: (val) => admin.toggleDriver(driver.id, val),
+                  onChanged: (val) => admin.toggleDriver(driver, val),
                   activeThumbColor: Theme.of(context).colorScheme.primary,
                 ),
                 Text(
@@ -330,7 +423,7 @@ class _DriverDetailSheetState extends State<_DriverDetailSheet> {
       ),
     );
     if (ok != true || !context.mounted) return;
-    await context.read<AdminProvider>().deleteDriver(driver.id);
+    await context.read<AdminProvider>().deleteDriver(driver);
     if (context.mounted) {
       Navigator.pop(context);
       ScaffoldMessenger.of(context).showSnackBar(
@@ -613,6 +706,23 @@ class _AddDriverSheetState extends State<_AddDriverSheet> {
   String? _error;
   String? _pickedPath;
   String _ocrRaw = '';
+  List<BackendServer> _targetBackends = [];
+  int? _selectedBackendId;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _loadTargetBackends());
+  }
+
+  Future<void> _loadTargetBackends() async {
+    final list = await context.read<AdminProvider>().connectedBackends;
+    if (!mounted) return;
+    setState(() {
+      _targetBackends = list;
+      if (list.length == 1) _selectedBackendId = list.first.id;
+    });
+  }
 
   @override
   void dispose() {
@@ -702,6 +812,7 @@ class _AddDriverSheetState extends State<_AddDriverSheet> {
       final stored = await persistCnibPhoto(_pickedPath!);
       if (!mounted) return;
       final username = await context.read<AdminProvider>().createDriver(
+        backendId: _selectedBackendId ?? 0,
         username: _usernameCtrl.text.trim(),
         lastName: _lastCtrl.text.trim(),
         firstName: _firstCtrl.text.trim(),
@@ -795,6 +906,27 @@ class _AddDriverSheetState extends State<_AddDriverSheet> {
                 ),
               ),
               const SizedBox(height: 12),
+              if (_targetBackends.length > 1) ...[
+                DropdownButtonFormField<int>(
+                  initialValue: _selectedBackendId,
+                  decoration: const InputDecoration(
+                    labelText: 'Serveur cible *',
+                    border: OutlineInputBorder(),
+                  ),
+                  items: _targetBackends
+                      .where((b) => b.id != null)
+                      .map(
+                        (b) => DropdownMenuItem(
+                          value: b.id,
+                          child: Text('${b.name} (${b.origin})'),
+                        ),
+                      )
+                      .toList(),
+                  onChanged: (v) => setState(() => _selectedBackendId = v),
+                  validator: (v) => v == null ? 'Choisissez un serveur' : null,
+                ),
+                const SizedBox(height: 12),
+              ],
               if (_error != null)
                 Container(
                   margin: const EdgeInsets.only(bottom: 12),

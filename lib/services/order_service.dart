@@ -5,6 +5,7 @@ import '../database/orders_dao.dart';
 import '../models/backend_server_model.dart';
 import '../models/order_model.dart';
 import 'auth_service.dart';
+import 'backend_admin_api.dart';
 import 'store_api_bridge.dart';
 
 class OrderService {
@@ -41,17 +42,43 @@ class OrderService {
   Future<List<BackendServer>> _sessionBackends() =>
       StoreApiBridge.instance.getAuthenticatedBackends();
 
-  Future<List<Order>> fetchAdminOrders({int size = 200}) async {
-    final backends = await _sessionBackends();
-    if (backends.isEmpty) {
-      throw Exception('Aucun serveur connecté (JWT).');
+  Future<({List<Order> orders, String? error})> _fetchAdminOrdersOnBackend(
+    BackendServer backend, {
+    int size = 200,
+  }) async {
+    final id = backend.id;
+    if (id == null) return (orders: <Order>[], error: 'Serveur invalide.');
+
+    final token = await StoreApiBridge.instance.getJwt(id);
+    if (token == null) {
+      return (orders: <Order>[], error: 'Session expirée sur ${backend.name}.');
     }
 
-    final merged = <Order>[];
-    for (final backend in backends) {
-      final token = await StoreApiBridge.instance.getJwt(backend.id!);
-      if (token == null) continue;
-      final url = '${backend.origin}/api/admin/orders?size=$size&sort=createdAt,desc';
+    final session = await StoreApiBridge.instance.resolveAdminSession(
+      backendId: id,
+      backend: backend,
+      token: token,
+    );
+    final managerStoreId = await StoreApiBridge.instance.resolveManagerStoreId(
+      backendId: id,
+      backend: backend,
+      token: token,
+      session: session,
+    );
+    final url = BackendAdminApi.adminOrdersUrl(
+      backend: backend,
+      session: session,
+      managerStoreId: managerStoreId,
+      size: size,
+    );
+    if (url == null) {
+      return (
+        orders: <Order>[],
+        error: 'Boutique introuvable sur ${backend.name} (vérifiez code ou ID boutique).',
+      );
+    }
+
+    try {
       final res = await StoreApiBridge.instance.dio.get<dynamic>(
         url,
         options: Options(
@@ -61,17 +88,62 @@ class OrderService {
       final code = res.statusCode ?? 0;
       _logStoreApi('GET', url, code, 'admin orders (${backend.name})');
       if (code == 200) {
-        merged.addAll(_parseOrdersFromResponseData(res.data, backend: backend));
-      } else if (code == 401 || code == 403) {
-        if (kDebugMode) {
-          debugPrint('[StoreAPI] admin refusé sur ${backend.name}');
-        }
+        return (
+          orders: _parseOrdersFromResponseData(res.data, backend: backend),
+          error: null,
+        );
+      }
+      if (code == 401 || code == 403) {
+        return (orders: <Order>[], error: 'Accès admin refusé sur ${backend.name}.');
+      }
+      return (orders: <Order>[], error: 'Erreur $code sur ${backend.name}.');
+    } catch (e) {
+      return (orders: <Order>[], error: 'Impossible de joindre ${backend.name} ($e).');
+    }
+  }
+
+  /// Commandes admin pour un seul serveur (sync SSE ciblée multi-backend).
+  Future<List<Order>> fetchAdminOrdersForBackend(int backendId, {int size = 200}) async {
+    final backends = await _sessionBackends();
+    final backend = backends.where((b) => b.id == backendId).firstOrNull;
+    if (backend == null) {
+      throw Exception('Serveur #$backendId non connecté.');
+    }
+    final result = await _fetchAdminOrdersOnBackend(backend, size: size);
+    if (result.error != null && result.orders.isEmpty) {
+      throw Exception(result.error);
+    }
+    final list = List<Order>.from(result.orders);
+    list.sort((a, b) => b.createdAt.compareTo(a.createdAt));
+    return list;
+  }
+
+  Future<List<Order>> fetchAdminOrders({int size = 200}) async {
+    final backends = await _sessionBackends();
+    if (backends.isEmpty) {
+      throw Exception('Aucun serveur connecté (JWT). Reconnectez-vous.');
+    }
+
+    final merged = <Order>[];
+    var anySuccess = false;
+    String? lastError;
+
+    for (final backend in backends) {
+      final result = await _fetchAdminOrdersOnBackend(backend, size: size);
+      if (result.orders.isNotEmpty) {
+        anySuccess = true;
+        merged.addAll(result.orders);
+      } else if (result.error != null) {
+        lastError = result.error;
+      } else {
+        anySuccess = true;
       }
     }
 
-    if (merged.isEmpty) {
-      throw Exception('Aucune commande admin (vérifiez rôle manager/admin).');
+    if (!anySuccess) {
+      throw Exception(lastError ?? 'Impossible de charger les commandes admin.');
     }
+
     merged.sort((a, b) => b.createdAt.compareTo(a.createdAt));
     return merged;
   }
@@ -82,10 +154,30 @@ class OrderService {
 
     int totalOrders = 0;
     int confirmedOrders = 0;
+    var anyStats = false;
+
     for (final backend in backends) {
       final token = await StoreApiBridge.instance.getJwt(backend.id!);
       if (token == null) continue;
-      final url = '${backend.origin}/api/admin/dashboard/stats';
+
+      final session = await StoreApiBridge.instance.resolveAdminSession(
+        backendId: backend.id!,
+        backend: backend,
+        token: token,
+      );
+      final managerStoreId = await StoreApiBridge.instance.resolveManagerStoreId(
+        backendId: backend.id!,
+        backend: backend,
+        token: token,
+        session: session,
+      );
+      final url = BackendAdminApi.adminStatsUrl(
+        backend: backend,
+        session: session,
+        managerStoreId: managerStoreId,
+      );
+      if (url == null) continue;
+
       try {
         final res = await StoreApiBridge.instance.dio.get<dynamic>(
           url,
@@ -94,6 +186,7 @@ class OrderService {
           ),
         );
         if (res.statusCode == 200 && res.data is Map) {
+          anyStats = true;
           final map = Map<String, dynamic>.from(res.data as Map);
           totalOrders += (map['totalOrders'] as num?)?.toInt() ?? 0;
           confirmedOrders += (map['confirmedOrders'] as num?)?.toInt() ?? 0;
@@ -101,7 +194,7 @@ class OrderService {
       } catch (_) {}
     }
 
-    if (totalOrders == 0 && confirmedOrders == 0) return null;
+    if (!anyStats) return null;
     return {
       'totalOrders': totalOrders,
       'confirmedOrders': confirmedOrders,

@@ -3,6 +3,9 @@ class UserModel {
   final String username;
   final String role;
   final bool active;
+  final String? email;
+  final int? backendId;
+  final String? backendName;
   final double? lat;
   final double? lng;
   final String? fcmToken;
@@ -26,6 +29,9 @@ class UserModel {
     required this.username,
     required this.role,
     this.active = true,
+    this.email,
+    this.backendId,
+    this.backendName,
     this.lat,
     this.lng,
     this.fcmToken,
@@ -60,8 +66,41 @@ class UserModel {
   }
 
   bool get isDeliveryAgent => role == 'DELIVERY_AGENT';
-  bool get isAdmin => role == 'ADMIN' || role == 'SUPER_ADMIN';
+  bool get isAdmin =>
+      role == 'ADMIN' || role == 'SUPER_ADMIN' || role == 'MANAGER';
   bool get hasDeliveryAccess => isDeliveryAgent || isAdmin;
+
+  /// Compte livreur renvoyé par STORE-ALL (`/api/manager/{storeId}/users`).
+  factory UserModel.fromStoreApi(
+    Map<String, dynamic> json, {
+    required int backendId,
+    required String backendName,
+  }) {
+    final roleRaw = json['role']?.toString() ?? 'DELIVERY_AGENT';
+    return UserModel(
+      id: (json['id'] as num?)?.toInt() ?? 0,
+      username: json['username']?.toString() ?? '',
+      role: roleRaw,
+      active: json['active'] as bool? ?? true,
+      email: json['email']?.toString(),
+      firstName: json['firstName']?.toString(),
+      lastName: json['lastName']?.toString(),
+      phone: json['phone']?.toString(),
+      cnibOcrText: json['cnibOcrText']?.toString(),
+      cnibNationalId: json['cnibNationalId']?.toString(),
+      cnibSerial: json['cnibSerial']?.toString(),
+      birthDate: json['birthDate']?.toString(),
+      birthPlace: json['birthPlace']?.toString(),
+      gender: json['gender']?.toString(),
+      profession: json['profession']?.toString(),
+      cnibIssueDate: json['cnibIssueDate']?.toString(),
+      cnibExpiryDate: json['cnibExpiryDate']?.toString(),
+      backendId: backendId,
+      backendName: backendName,
+    );
+  }
+
+  String get compositeKey => '${backendId ?? 0}:$id';
 
   factory UserModel.fromSqlite(Map<String, dynamic> row) => UserModel(
         id: row['id'] as int,

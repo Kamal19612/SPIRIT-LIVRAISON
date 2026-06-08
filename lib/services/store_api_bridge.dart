@@ -5,6 +5,7 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 import '../database/backends_dao.dart';
 import '../models/backend_server_model.dart';
+import '../models/backend_session_info.dart';
 import '../models/order_model.dart';
 import '../utils/url_normalize.dart';
 
@@ -12,6 +13,8 @@ class BackendLoginResult {
   final String token;
   final bool isDelivery;
   final bool isAdmin;
+  final bool isSuperAdmin;
+  final int? storeId;
   final int userId;
   final String displayName;
 
@@ -19,11 +22,22 @@ class BackendLoginResult {
     required this.token,
     required this.isDelivery,
     required this.isAdmin,
+    this.isSuperAdmin = false,
+    this.storeId,
     required this.userId,
     required this.displayName,
   });
 
-  String get effectiveRole => isDelivery ? 'DELIVERY_AGENT' : 'ADMIN';
+  String get effectiveRole {
+    if (isDelivery) return 'DELIVERY_AGENT';
+    if (isSuperAdmin) return 'SUPER_ADMIN';
+    return 'ADMIN';
+  }
+
+  BackendSessionInfo get sessionInfo => BackendSessionInfo(
+        storeId: storeId,
+        isSuperAdmin: isSuperAdmin,
+      );
 }
 
 /// Client API multi-backend (STORE-ALL / Spring compatible).
@@ -45,6 +59,7 @@ class StoreApiBridge {
   Dio get dio => _dio;
 
   String _jwtKey(int backendId) => 'backend_jwt_$backendId';
+  String _sessionKey(int backendId) => 'backend_session_$backendId';
 
   Future<List<int>> getAuthenticatedBackendIds() async {
     final raw = await _storage.read(key: _authBackendIdsKey);
@@ -78,8 +93,108 @@ class StoreApiBridge {
     await _storage.write(key: _jwtKey(backendId), value: token);
   }
 
+  Future<void> saveBackendSession(int backendId, BackendSessionInfo session) async {
+    await _storage.write(
+      key: _sessionKey(backendId),
+      value: jsonEncode(session.toJson()),
+    );
+  }
+
+  Future<BackendSessionInfo?> getBackendSession(int backendId) async {
+    final raw = await _storage.read(key: _sessionKey(backendId));
+    if (raw == null || raw.isEmpty) return null;
+    try {
+      final map = jsonDecode(raw);
+      if (map is! Map) return null;
+      return BackendSessionInfo.fromJson(Map<String, dynamic>.from(map));
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Résout la session admin (cache ou sonde `/api/super/orders` pour anciennes sessions).
+  Future<BackendSessionInfo> resolveAdminSession({
+    required int backendId,
+    required BackendServer backend,
+    required String token,
+  }) async {
+    final cached = await getBackendSession(backendId);
+    if (cached != null && cached.canFetchAdminOrders) return cached;
+
+    final probeUrl = '${backend.origin}/api/super/orders?size=1';
+    try {
+      final res = await _dio.get<dynamic>(
+        probeUrl,
+        options: Options(headers: _authHeaders(token)),
+      );
+      if ((res.statusCode ?? 0) == 200) {
+        const session = BackendSessionInfo(isSuperAdmin: true);
+        await saveBackendSession(backendId, session);
+        return session;
+      }
+    } catch (_) {}
+
+    return cached ?? const BackendSessionInfo();
+  }
+
+  /// Identifiant boutique pour les routes `/api/manager/{storeId}/...` (par serveur).
+  Future<int?> resolveManagerStoreId({
+    required int backendId,
+    required BackendServer backend,
+    required String token,
+    BackendSessionInfo? session,
+  }) async {
+    final configured = backend.managerStoreId;
+    if (configured != null && configured > 0) return configured;
+
+    final sess = session ??
+        await resolveAdminSession(
+          backendId: backendId,
+          backend: backend,
+          token: token,
+        );
+    final fromSession = sess.storeId;
+    if (fromSession != null && fromSession > 0) return fromSession;
+    if (!sess.isSuperAdmin) return null;
+    return _resolveSuperStoreId(backend: backend, token: token);
+  }
+
+  Future<int?> _resolveSuperStoreId({
+    required BackendServer backend,
+    required String token,
+  }) async {
+    final url = '${backend.origin}/api/super/stores';
+    try {
+      final res = await _dio.get<dynamic>(
+        url,
+        options: Options(headers: _authHeaders(token)),
+      );
+      if ((res.statusCode ?? 0) != 200) return null;
+      final data = res.data;
+      if (data is! List || data.isEmpty) return null;
+
+      final code = backend.storeCode.trim().toLowerCase();
+      if (code.isNotEmpty) {
+        for (final item in data) {
+          if (item is! Map) continue;
+          final itemCode = item['code']?.toString().trim().toLowerCase() ?? '';
+          if (itemCode == code) {
+            return (item['id'] as num?)?.toInt();
+          }
+        }
+      }
+
+      final first = data.first;
+      if (first is! Map) return null;
+      return (first['id'] as num?)?.toInt();
+    } catch (_) {
+      return null;
+    }
+  }
+
   Future<void> clearBackendSession(int backendId) async {
     await _storage.delete(key: _jwtKey(backendId));
+    await _storage.delete(key: _sessionKey(backendId));
   }
 
   Future<void> clearAllSessions() async {
@@ -127,8 +242,9 @@ class StoreApiBridge {
       final isDelivery = roleStr.contains('ROLE_DELIVERY_AGENT') ||
           roleStr.contains('DELIVERY_AGENT') ||
           map['role']?.toString() == 'livreur';
-      final isAdmin = roleStr.contains('ROLE_ADMIN') ||
-          roleStr.contains('ROLE_SUPER_ADMIN') ||
+      final isSuperAdmin = roleStr.contains('ROLE_SUPER_ADMIN');
+      final isAdmin = isSuperAdmin ||
+          roleStr.contains('ROLE_ADMIN') ||
           roleStr.contains('ROLE_MANAGER') ||
           roleStr.contains('ADMIN') ||
           roleStr.contains('MANAGER') ||
@@ -138,6 +254,7 @@ class StoreApiBridge {
         throw Exception('Compte sans accès livraison/admin sur ${backend.name}.');
       }
 
+      final storeId = (map['storeId'] as num?)?.toInt();
       final id = (map['livreurId'] as num?)?.toInt() ??
           (map['userId'] as num?)?.toInt() ??
           0;
@@ -147,10 +264,16 @@ class StoreApiBridge {
           : username.trim();
 
       await saveJwt(backend.id!, token);
+      await saveBackendSession(backend.id!, BackendSessionInfo(
+        storeId: storeId,
+        isSuperAdmin: isSuperAdmin,
+      ));
       return BackendLoginResult(
         token: token,
         isDelivery: isDelivery,
         isAdmin: isAdmin,
+        isSuperAdmin: isSuperAdmin,
+        storeId: storeId,
         userId: id > 0 ? id : 1,
         displayName: display,
       );
