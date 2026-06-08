@@ -8,7 +8,10 @@ class DeliverySseService {
   Future<void> start({
     required void Function(String event, Map<String, dynamic> data) onEvent,
   }) =>
-      StoreSseService.instance.start(stream: StoreSseStream.delivery, onEvent: onEvent);
+      StoreSseService.instance.start(
+        stream: StoreSseStream.delivery,
+        onEvent: (_, event, data) => onEvent(event, data),
+      );
 
   Future<void> stop() => StoreSseService.instance.stop(stream: StoreSseStream.delivery);
 }

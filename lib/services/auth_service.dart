@@ -43,6 +43,17 @@ class AuthService {
   Future<List<BackendServer>> getConfiguredBackends({bool activeOnly = true}) =>
       BackendsDao.instance.getAll(activeOnly: activeOnly);
 
+  Future<bool> isLocalOnlySession() async {
+    final raw = await _storage.read(key: _userKey);
+    if (raw == null || raw.isEmpty) return false;
+    try {
+      final map = jsonDecode(raw) as Map<String, dynamic>;
+      return map['localOnly'] == true;
+    } catch (_) {
+      return false;
+    }
+  }
+
   Future<UserModel?> tryRestoreSession() async {
     final raw = await _storage.read(key: _userKey);
     if (raw == null || raw.isEmpty) return null;
@@ -53,9 +64,13 @@ class AuthService {
       final role = map['role']?.toString() ?? 'DELIVERY_AGENT';
       if (id <= 0 || username.isEmpty) return null;
 
-      final backends = await StoreApiBridge.instance.getAuthenticatedBackends();
       final isLocalOnly = map['localOnly'] == true;
-      if (!isLocalOnly && backends.isEmpty) return null;
+      if (isLocalOnly) {
+        return UserModel(id: id, username: username, role: role);
+      }
+
+      final backends = await StoreApiBridge.instance.getAuthenticatedBackends();
+      if (backends.isEmpty) return null;
 
       return UserModel(id: id, username: username, role: role);
     } catch (_) {

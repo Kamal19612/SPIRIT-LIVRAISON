@@ -47,6 +47,12 @@ class StoreSseService {
     await _connectAll(stream);
   }
 
+  /// Relance les flux SSE actifs (veille / retour réseau).
+  Future<void> reconnectIfActive(StoreSseStream stream) async {
+    if (_stopped[stream] == true || _handlers[stream] == null) return;
+    await _connectAll(stream);
+  }
+
   Future<void> stop({StoreSseStream? stream}) async {
     if (stream == null) {
       for (final s in StoreSseStream.values) {

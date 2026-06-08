@@ -1,6 +1,7 @@
 import 'dart:math';
 import 'package:flutter/foundation.dart';
 import '../models/order_model.dart';
+import '../services/delivery_alert_service.dart';
 import '../services/order_service.dart';
 
 class OrdersProvider extends ChangeNotifier {
@@ -90,18 +91,30 @@ class OrdersProvider extends ChangeNotifier {
     }
   }
 
-  Future<void> refresh({bool silent = false}) async {
+  Future<void> refresh({bool silent = false, bool alertOnNewOrders = false}) async {
     if (_refreshInFlight) return;
     _refreshInFlight = true;
+    final previousKeys =
+        _availableOrders.map((o) => o.compositeKey).toSet();
     if (!silent) {
       _isRefreshing = true;
       _error = null;
       notifyListeners();
     }
     try {
-      _availableOrders =
+      final freshAvailable =
           _sortByDistance(await OrderService.instance.fetchAvailableOrders());
+      _availableOrders = freshAvailable;
       _myOrders = await OrderService.instance.fetchMyOrders();
+
+      if (silent && alertOnNewOrders) {
+        for (final order in freshAvailable) {
+          if (!previousKeys.contains(order.compositeKey)) {
+            await DeliveryAlertService.instance.fromOrder(order);
+          }
+        }
+      }
+
       if (silent) _error = null;
     } catch (e) {
       if (!silent) {

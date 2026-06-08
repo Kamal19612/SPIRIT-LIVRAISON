@@ -46,8 +46,33 @@ class AdminProvider extends ChangeNotifier {
   Future<bool> _shouldLoadAdminFromStoreApi() async {
     final u = await AuthService.instance.tryRestoreSession();
     if (u == null || !u.isAdmin) return false;
+    if (await AuthService.instance.isLocalOnlySession()) return false;
     final backends = await StoreApiBridge.instance.getAuthenticatedBackends();
     return backends.isNotEmpty;
+  }
+
+  bool _isAuthErrorMessage(String msg) {
+    final lower = msg.toLowerCase();
+    return lower.contains('accès admin refusé') ||
+        lower.contains('session expirée') ||
+        lower.contains('401') ||
+        lower.contains('403');
+  }
+
+  Future<void> _handleSyncAuthFailure(String msg, {int? backendId}) async {
+    if (!_isAuthErrorMessage(msg)) return;
+    if (backendId != null) {
+      await StoreApiBridge.instance.clearBackendSession(backendId);
+      final remaining = await StoreApiBridge.instance.getAuthenticatedBackendIds();
+      remaining.remove(backendId);
+      await StoreApiBridge.instance.setAuthenticatedBackendIds(remaining);
+      return;
+    }
+    final backends = await StoreApiBridge.instance.getAuthenticatedBackends();
+    for (final b in backends) {
+      if (b.id != null) await StoreApiBridge.instance.clearBackendSession(b.id!);
+    }
+    await StoreApiBridge.instance.setAuthenticatedBackendIds(const []);
   }
 
   /// Serveurs backend actuellement authentifiés (multi-instances).
@@ -59,6 +84,7 @@ class AdminProvider extends ChangeNotifier {
     bool orders = true,
     bool drivers = false,
     int? backendId,
+    bool silent = false,
   }) async {
     if (!await _shouldLoadAdminFromStoreApi()) return;
 
@@ -73,7 +99,7 @@ class AdminProvider extends ChangeNotifier {
           try {
             _apiStats = await OrderService.instance.fetchAdminDashboardStats();
           } catch (_) {}
-          _error = null;
+          if (!silent) _error = null;
         }
         if (drivers) {
           final fresh = await AdminUserService.instance.fetchAdminDriversForBackend(backendId);
@@ -81,11 +107,16 @@ class AdminProvider extends ChangeNotifier {
             ..._drivers.where((d) => d.backendId != backendId),
             ...fresh,
           ]..sort((a, b) => a.username.compareTo(b.username));
-          _driversError = null;
+          if (!silent) _driversError = null;
         }
         notifyListeners();
       } catch (e) {
         final msg = e.toString().replaceFirst('Exception: ', '');
+        await _handleSyncAuthFailure(msg, backendId: backendId);
+        if (silent) {
+          if (kDebugMode) debugPrint('[Admin] sync silencieux ($backendId): $msg');
+          return;
+        }
         if (orders) _error = msg;
         if (drivers) _driversError = msg;
         notifyListeners();

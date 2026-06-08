@@ -9,6 +9,7 @@ import 'providers/orders_provider.dart';
 import 'screens/admin/admin_shell.dart';
 import 'screens/dashboard_screen.dart';
 import 'screens/login_screen.dart';
+import 'services/connection_keep_alive_service.dart';
 import 'services/location_service.dart';
 import 'services/notification_service.dart';
 import 'services/fcm_service.dart';
@@ -29,7 +30,7 @@ void main() async {
         ChangeNotifierProvider(create: (_) => AdminProvider()),
         ChangeNotifierProvider(create: (_) => LocationService()),
       ],
-      child: const DeliveryApp(),
+      child: const _DeliveryAppRoot(),
     ),
   );
 
@@ -41,6 +42,35 @@ void main() async {
 
   await appConfigProvider.init();
   await authProvider.init();
+}
+
+class _DeliveryAppRoot extends StatefulWidget {
+  const _DeliveryAppRoot();
+
+  @override
+  State<_DeliveryAppRoot> createState() => _DeliveryAppRootState();
+}
+
+class _DeliveryAppRootState extends State<_DeliveryAppRoot> with WidgetsBindingObserver {
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    ConnectionKeepAliveService.instance.onAppLifecycleChange(state);
+  }
+
+  @override
+  Widget build(BuildContext context) => const DeliveryApp();
 }
 
 class DeliveryApp extends StatelessWidget {

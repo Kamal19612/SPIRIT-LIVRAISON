@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart';
 import '../models/backend_login_status.dart';
 import '../models/user_model.dart';
 import '../services/auth_service.dart';
+import '../services/connection_keep_alive_service.dart';
 import '../services/fcm_service.dart';
 
 class AuthProvider extends ChangeNotifier {
@@ -26,6 +27,7 @@ class AuthProvider extends ChangeNotifier {
       try {
         await FcmService.instance.registerIfPossible(this);
       } catch (_) {}
+      await ConnectionKeepAliveService.instance.syncWithSession();
     }
     _isInitializing = false;
     notifyListeners();
@@ -47,6 +49,7 @@ class AuthProvider extends ChangeNotifier {
       try {
         await FcmService.instance.registerIfPossible(this);
       } catch (_) {}
+      await ConnectionKeepAliveService.instance.syncWithSession();
     } catch (e) {
       _errorMessage = e.toString().replaceFirst('Exception: ', '');
       _user = null;
@@ -67,6 +70,7 @@ class AuthProvider extends ChangeNotifier {
     _isLoading = true;
     notifyListeners();
 
+    await ConnectionKeepAliveService.instance.stop();
     await AuthService.instance.logout();
     _user = null;
     _backendLoginStatus = null;

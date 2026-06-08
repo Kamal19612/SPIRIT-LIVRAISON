@@ -4,6 +4,9 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../providers/auth_provider.dart';
 import '../providers/orders_provider.dart';
+import '../services/auth_service.dart';
+import '../services/connection_keep_alive_service.dart';
+import '../services/delivery_alert_service.dart';
 import '../services/delivery_sse_service.dart';
 import '../services/fcm_service.dart';
 import '../services/location_service.dart';
@@ -24,6 +27,7 @@ class _DashboardScreenState extends State<DashboardScreen>
   LocationService? _locationService;
   Timer? _pollTimer;
   bool _appInForeground = true;
+  bool _localOnly = false;
 
   static const Color _gray50 = Color(0xFFF9FAFB);
   static const Color _gray100 = Color(0xFFF3F4F6);
@@ -50,19 +54,30 @@ class _DashboardScreenState extends State<DashboardScreen>
     if (!mounted) return;
 
     final auth = context.read<AuthProvider>();
+    final locationService = context.read<LocationService>();
     if (auth.user != null) {
+      _localOnly = await AuthService.instance.isLocalOnlySession();
+      await NotificationService.instance.ensurePermission();
       FcmService.instance.listenForeground(onEvent: _onFcmEvent);
+
+      ConnectionKeepAliveService.instance.setHeartbeatCallback(() async {
+        if (!mounted) return;
+        await ordersProvider.refresh(silent: true);
+      });
+      await ConnectionKeepAliveService.instance.syncWithSession();
+      if (!mounted) return;
 
       unawaited(
         DeliverySseService.instance.start(onEvent: _onSseEvent),
       );
 
-      _pollTimer = Timer.periodic(const Duration(seconds: 5), (_) {
-        if (!_appInForeground || !mounted) return;
-        ordersProvider.refresh(silent: true);
+      _pollTimer = Timer.periodic(const Duration(seconds: 8), (_) {
+        if (!mounted) return;
+        if (!_localOnly && !_appInForeground) return;
+        ordersProvider.refresh(silent: true, alertOnNewOrders: _localOnly);
       });
 
-      _locationService = context.read<LocationService>();
+      _locationService = locationService;
       await _locationService!.startTracking(auth.user!.id);
       if (!mounted) return;
       _locationService!.addListener(_onLocationChanged);
@@ -80,29 +95,27 @@ class _DashboardScreenState extends State<DashboardScreen>
   void _handleRealtimeEvent(String type, Map<String, dynamic> data) {
     if (!mounted) return;
 
-    if (type == 'new_delivery') {
-      final orderNumber = data['orderNumber']?.toString() ?? '';
-      final deliveryType = data['deliveryType']?.toString();
+    if (DeliveryAlertService.isNewDeliveryEvent(type)) {
+      final orderNumber = data['orderNumber']?.toString() ??
+          data['order_number']?.toString() ??
+          '';
+      final deliveryType =
+          data['deliveryType']?.toString() ?? data['delivery_type']?.toString();
       final label = _typeLabel(deliveryType);
-      _showSnackbar(
-        label.isEmpty
-            ? '🚚 Nouvelle livraison #$orderNumber'
-            : '🚚 Nouvelle livraison #$orderNumber · $label',
-        isSuccess: true,
-      );
-      if (!_appInForeground) {
-        unawaited(
-          NotificationService.instance.showNewDeliveryNotification(
-            orderNumber: orderNumber.isNotEmpty ? orderNumber : '#',
-            deliveryType: deliveryType,
-          ),
+      unawaited(DeliveryAlertService.instance.fromEventPayload(data));
+      if (_appInForeground) {
+        _showSnackbar(
+          label.isEmpty
+              ? '🚚 Nouvelle livraison #$orderNumber'
+              : '🚚 Nouvelle livraison #$orderNumber · $label',
+          isSuccess: true,
         );
       }
       context.read<OrdersProvider>().refresh(silent: true);
       return;
     }
 
-    if (type == 'order_status') {
+    if (DeliveryAlertService.normalizeEventType(type) == 'order_status') {
       context.read<OrdersProvider>().refresh(silent: true);
     }
   }

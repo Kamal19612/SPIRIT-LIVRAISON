@@ -51,14 +51,27 @@ class NotificationService {
       // Canal Android pour les nouvelles commandes
       const channel = AndroidNotificationChannel(
         'delivery_orders',
-        'Nouvelles commandes',
-        description: 'Notifications pour les nouvelles commandes de livraison',
-        importance: Importance.high,
+        'Nouvelles livraisons',
+        description: 'Alertes sonores pour les nouvelles livraisons disponibles',
+        importance: Importance.max,
+        playSound: true,
+        enableVibration: true,
       );
       await _plugin
           .resolvePlatformSpecificImplementation<
               AndroidFlutterLocalNotificationsPlugin>()
           ?.createNotificationChannel(channel);
+
+      const connectionChannel = AndroidNotificationChannel(
+        'connection_active',
+        'Connexion serveur',
+        description: 'Maintien de la liaison avec le serveur en arrière-plan',
+        importance: Importance.low,
+      );
+      await _plugin
+          .resolvePlatformSpecificImplementation<
+              AndroidFlutterLocalNotificationsPlugin>()
+          ?.createNotificationChannel(connectionChannel);
 
       // Demande de permission Android 13+
       await _plugin
@@ -69,6 +82,20 @@ class NotificationService {
       _initialized = true;
     } catch (_) {
       // Notifications non disponibles sur cette plateforme (ex: desktop)
+    }
+  }
+
+  /// Demande la permission Android 13+ (retourne false si refusée).
+  Future<bool> ensurePermission() async {
+    if (!_initialized) await init();
+    try {
+      final android = _plugin.resolvePlatformSpecificImplementation<
+          AndroidFlutterLocalNotificationsPlugin>();
+      if (android == null) return true;
+      final granted = await android.requestNotificationsPermission();
+      return granted ?? true;
+    } catch (_) {
+      return false;
     }
   }
 
@@ -100,12 +127,19 @@ class NotificationService {
     try {
       const androidDetails = AndroidNotificationDetails(
         'delivery_orders',
-        'Nouvelles commandes',
-        channelDescription: 'Notifications pour les nouvelles commandes de livraison',
-        importance: Importance.high,
+        'Nouvelles livraisons',
+        channelDescription: 'Alertes pour les nouvelles livraisons disponibles',
+        importance: Importance.max,
         priority: Priority.high,
+        playSound: true,
+        enableVibration: true,
+        ticker: 'Nouvelle livraison',
       );
-      const iosDetails = DarwinNotificationDetails();
+      const iosDetails = DarwinNotificationDetails(
+        presentAlert: true,
+        presentBadge: true,
+        presentSound: true,
+      );
       const details = NotificationDetails(android: androidDetails, iOS: iosDetails);
       await _plugin.show(
         _notifId++,
@@ -175,6 +209,45 @@ class NotificationService {
       const details = NotificationDetails(android: androidDetails, iOS: iosDetails);
 
       await _plugin.show(_notifId++, title, body, details, payload: payloadStr);
+    } catch (_) {}
+  }
+
+  static const int connectionNotificationId = 900001;
+
+  /// Notification persistante : priorité processus Android pendant la veille.
+  Future<void> showConnectionActiveNotification() async {
+    if (!_initialized) return;
+    try {
+      const androidDetails = AndroidNotificationDetails(
+        'connection_active',
+        'Connexion serveur',
+        channelDescription: 'Maintien de la liaison avec le serveur',
+        importance: Importance.low,
+        priority: Priority.low,
+        ongoing: true,
+        autoCancel: false,
+        showWhen: false,
+        icon: '@mipmap/ic_launcher',
+      );
+      const iosDetails = DarwinNotificationDetails(
+        presentAlert: false,
+        presentBadge: false,
+        presentSound: false,
+      );
+      const details = NotificationDetails(android: androidDetails, iOS: iosDetails);
+      await _plugin.show(
+        connectionNotificationId,
+        'Connexion active',
+        'Synchronisation avec le serveur en cours',
+        details,
+      );
+    } catch (_) {}
+  }
+
+  Future<void> hideConnectionActiveNotification() async {
+    if (!_initialized) return;
+    try {
+      await _plugin.cancel(connectionNotificationId);
     } catch (_) {}
   }
 }

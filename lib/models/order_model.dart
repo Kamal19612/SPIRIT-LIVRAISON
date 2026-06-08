@@ -28,7 +28,7 @@ class OrderItem {
     final productMap = json['product'];
     var productName = json['productName']?.toString() ?? json['name']?.toString() ?? '';
     if (productName.isEmpty && productMap is Map) {
-      productName = (productMap as Map)['name']?.toString() ?? '';
+      productName = productMap['name']?.toString() ?? '';
     }
     return OrderItem(
       id: id,
@@ -56,6 +56,13 @@ int _djb2PositiveId(String s) {
     hash = ((hash << 5) + hash + c) & 0x7FFFFFFF;
   }
   return hash == 0 ? 1 : hash;
+}
+
+int _parseIntId(dynamic v, {int fallback = 0}) {
+  if (v is int) return v;
+  if (v is num) return v.toInt();
+  if (v is String) return int.tryParse(v) ?? fallback;
+  return fallback;
 }
 
 int _parseOrderId(Map<String, dynamic> json) {
@@ -188,7 +195,7 @@ class Order {
       );
 
   factory Order.fromSqlite(Map<String, dynamic> row) => Order(
-        id: row['id'] as int,
+        id: _parseIntId(row['id']),
         orderNumber: row['orderNumber']?.toString() ?? '',
         confirmationCode: row['confirmationCode']?.toString(),
         customerName: row['customerName']?.toString() ?? '',
@@ -275,8 +282,10 @@ class Order {
       status: json['status']?.toString() ?? 'CONFIRMED',
       createdAt: json['createdAt']?.toString() ?? '',
       updatedAt: json['updatedAt']?.toString(),
-      deleted: json['deleted'] as bool? ?? false,
-      deliveryAgent: json['deliveryAgent'] as Map<String, dynamic>?,
+      deleted: json['deleted'] == true || json['deleted'] == 1,
+      deliveryAgent: json['deliveryAgent'] is Map
+          ? Map<String, dynamic>.from(json['deliveryAgent'] as Map)
+          : null,
       store: storeInfo,
       items: itemsList,
       sourcePlatform: json['sourcePlatform']?.toString() ?? 'manual',

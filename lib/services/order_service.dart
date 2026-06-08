@@ -220,6 +220,7 @@ class OrderService {
   }
 
   Future<bool> _useLocalOrders() async {
+    if (await AuthService.instance.isLocalOnlySession()) return true;
     final backends = await _sessionBackends();
     return backends.isEmpty;
   }

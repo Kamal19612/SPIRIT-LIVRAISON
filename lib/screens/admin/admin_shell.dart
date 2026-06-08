@@ -6,6 +6,7 @@ import '../../models/backend_server_model.dart';
 import '../../providers/admin_provider.dart';
 import '../../providers/app_config_provider.dart';
 import '../../providers/auth_provider.dart';
+import '../../services/connection_keep_alive_service.dart';
 import '../../services/fcm_service.dart';
 import '../../services/store_sse_service.dart';
 import '../../widgets/backend_connection_banner.dart';
@@ -61,6 +62,12 @@ class _AdminShellState extends State<AdminShell> with WidgetsBindingObserver {
 
     FcmService.instance.listenForeground(onEvent: _onFcmEvent);
 
+    ConnectionKeepAliveService.instance.setHeartbeatCallback(() async {
+      if (!mounted) return;
+      await admin.syncFromDatabase(orders: true, silent: true);
+    });
+    await ConnectionKeepAliveService.instance.syncWithSession();
+
     await StoreSseService.instance.start(
       stream: StoreSseStream.admin,
       onEvent: _onSseEvent,
@@ -75,10 +82,10 @@ class _AdminShellState extends State<AdminShell> with WidgetsBindingObserver {
       case 'new_order':
       case 'order_status':
       case 'new_delivery':
-        unawaited(admin.syncFromDatabase(orders: true));
+        unawaited(admin.syncFromDatabase(orders: true, silent: true));
         break;
       case 'staff_changed':
-        unawaited(admin.syncFromDatabase(drivers: true));
+        unawaited(admin.syncFromDatabase(drivers: true, silent: true));
         break;
       default:
         break;
@@ -99,10 +106,10 @@ class _AdminShellState extends State<AdminShell> with WidgetsBindingObserver {
       case 'new_order':
       case 'order_status':
       case 'new_delivery':
-        unawaited(admin.syncFromDatabase(orders: true, backendId: backendId));
+        unawaited(admin.syncFromDatabase(orders: true, backendId: backendId, silent: true));
         break;
       case 'staff_changed':
-        unawaited(admin.syncFromDatabase(drivers: true, backendId: backendId));
+        unawaited(admin.syncFromDatabase(drivers: true, backendId: backendId, silent: true));
         break;
       default:
         break;
@@ -111,7 +118,12 @@ class _AdminShellState extends State<AdminShell> with WidgetsBindingObserver {
 
   Future<void> _syncAll() async {
     if (!mounted) return;
-    await context.read<AdminProvider>().syncFromDatabase(orders: true, drivers: true);
+    // Au réveil : resync discret — ne pas afficher « Accès admin refusé » si JWT expiré.
+    await context.read<AdminProvider>().syncFromDatabase(
+          orders: true,
+          drivers: true,
+          silent: true,
+        );
   }
 
   @override

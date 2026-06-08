@@ -18,6 +18,7 @@ class AdminUserService {
   Future<bool> _useStoreApi() async {
     final u = await AuthService.instance.tryRestoreSession();
     if (u == null || !u.isAdmin) return false;
+    if (await AuthService.instance.isLocalOnlySession()) return false;
     final backends = await _sessionBackends();
     return backends.isNotEmpty;
   }

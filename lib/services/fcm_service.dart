@@ -6,6 +6,7 @@ import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/widgets.dart';
 
 import '../providers/auth_provider.dart';
+import 'delivery_alert_service.dart';
 import 'notification_service.dart';
 import 'store_api_bridge.dart';
 
@@ -31,11 +32,17 @@ class FcmService {
   static final FcmService instance = FcmService._();
 
   bool _initialized = false;
+  StreamSubscription<RemoteMessage>? _foregroundSub;
 
   Future<void> init() async {
     if (_initialized) return;
     await Firebase.initializeApp();
-    await FirebaseMessaging.instance.requestPermission();
+    await FirebaseMessaging.instance.requestPermission(
+      alert: true,
+      badge: true,
+      sound: true,
+    );
+    await NotificationService.instance.ensurePermission();
     _initialized = true;
     // Renouvellement de token (rotation FCM) → re-sync backend
     FirebaseMessaging.instance.onTokenRefresh.listen((t) {
@@ -69,11 +76,12 @@ class FcmService {
     await _registerTokenToBackend(token);
   }
 
-  /// Écoute les messages FCM en foreground et peut déclencher un refresh commandes.
+  /// Écoute les messages FCM en foreground (une seule souscription).
   void listenForeground({
     required void Function(String type, Map<String, dynamic> data) onEvent,
   }) {
-    FirebaseMessaging.onMessage.listen((RemoteMessage msg) {
+    _foregroundSub?.cancel();
+    _foregroundSub = FirebaseMessaging.onMessage.listen((RemoteMessage msg) {
       final type = (msg.data['type'] ?? '').toString();
       if (type.isEmpty) return;
       onEvent(type, Map<String, dynamic>.from(msg.data));
@@ -89,10 +97,8 @@ Future<void> _showLocalNotificationFromMessage(RemoteMessage msg) async {
   final title = msg.notification?.title ?? '';
   final body = msg.notification?.body ?? '';
 
-  if (type == 'new_delivery') {
-    await NotificationService.instance.showNewOrderNotification(
-      orderNumber.isNotEmpty ? orderNumber : '#',
-    );
+  if (DeliveryAlertService.isNewDeliveryEvent(type)) {
+    await DeliveryAlertService.instance.fromEventPayload(msg.data);
     return;
   }
 
