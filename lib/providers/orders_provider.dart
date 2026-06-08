@@ -7,6 +7,7 @@ import '../services/order_service.dart';
 class OrdersProvider extends ChangeNotifier {
   List<Order> _availableOrders = [];
   List<Order> _myOrders        = [];
+  List<Order> _deliveryHistory = [];
   bool        _isLoading       = false;
   bool        _isRefreshing    = false;
   bool        _refreshInFlight = false;
@@ -16,6 +17,7 @@ class OrdersProvider extends ChangeNotifier {
 
   List<Order> get availableOrders => _availableOrders;
   List<Order> get myOrders        => _myOrders;
+  List<Order> get deliveryHistory => _deliveryHistory;
   bool        get isLoading       => _isLoading;
   bool        get isRefreshing    => _isRefreshing;
   String?     get error           => _error;
@@ -65,6 +67,7 @@ class OrdersProvider extends ChangeNotifier {
     try {
       _availableOrders = _sortByDistance(await OrderService.instance.fetchAvailableOrders());
       _myOrders        = await OrderService.instance.fetchMyOrders();
+      _deliveryHistory = await OrderService.instance.fetchDeliveryHistory();
     } catch (e) {
       _error = e.toString().replaceFirst('Exception: ', '');
     } finally {
@@ -80,8 +83,10 @@ class OrdersProvider extends ChangeNotifier {
     try {
       if (tab == 'available') {
         _availableOrders = _sortByDistance(await OrderService.instance.fetchAvailableOrders());
-      } else {
+      } else if (tab == 'my-orders') {
         _myOrders = await OrderService.instance.fetchMyOrders();
+      } else if (tab == 'history') {
+        _deliveryHistory = await OrderService.instance.fetchDeliveryHistory();
       }
     } catch (e) {
       _error = e.toString().replaceFirst('Exception: ', '');
@@ -106,6 +111,7 @@ class OrdersProvider extends ChangeNotifier {
           _sortByDistance(await OrderService.instance.fetchAvailableOrders());
       _availableOrders = freshAvailable;
       _myOrders = await OrderService.instance.fetchMyOrders();
+      _deliveryHistory = await OrderService.instance.fetchDeliveryHistory();
 
       if (silent && alertOnNewOrders) {
         for (final order in freshAvailable) {
@@ -153,6 +159,10 @@ class OrdersProvider extends ChangeNotifier {
       await OrderService.instance.completeDelivery(order, code);
       _myOrders.removeWhere((o) => o.compositeKey == order.compositeKey);
       notifyListeners();
+      try {
+        _deliveryHistory = await OrderService.instance.fetchDeliveryHistory();
+        notifyListeners();
+      } catch (_) {}
     } catch (e) {
       _error = e.toString().replaceFirst('Exception: ', '');
       notifyListeners();

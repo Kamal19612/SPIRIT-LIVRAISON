@@ -30,6 +30,15 @@ class OrdersDao {
     return rows.map(Order.fromSqlite).toList();
   }
 
+  Future<List<Order>> getDeliveryHistory(int userId) async {
+    final rows = await _db.rawQuery(
+      "SELECT * FROM orders WHERE status = 'DELIVERED' AND deliveryAgentId = ? "
+      "ORDER BY COALESCE(updatedAt, createdAt) DESC",
+      [userId],
+    );
+    return rows.map(Order.fromSqlite).toList();
+  }
+
   Future<Order?> getOrderById(int orderId) async {
     final rows = await _db.query('orders', where: 'id = ?', whereArgs: [orderId]);
     if (rows.isEmpty) return null;

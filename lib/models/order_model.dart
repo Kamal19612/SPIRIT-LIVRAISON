@@ -238,9 +238,10 @@ class Order {
     if (storeInfo == null) {
       final storeName = json['storeName']?.toString().trim() ?? '';
       final storeCode = json['storeCode']?.toString().trim().toLowerCase() ?? '';
-      if (storeName.isNotEmpty || storeCode.isNotEmpty) {
+      final storeId = (json['storeId'] as num?)?.toInt();
+      if (storeName.isNotEmpty || storeCode.isNotEmpty || (storeId != null && storeId > 0)) {
         storeInfo = OrderStoreInfo(
-          id: (json['storeId'] as num?)?.toInt(),
+          id: storeId,
           name: storeName,
           code: storeCode,
         );

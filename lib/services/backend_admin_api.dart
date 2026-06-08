@@ -46,4 +46,13 @@ class BackendAdminApi {
     required int userId,
   }) =>
       '${backend.origin}/api/manager/$managerStoreId/users/$userId';
+
+  static String? adminOrderDetailUrl({
+    required BackendServer backend,
+    required int storeId,
+    required int orderId,
+  }) {
+    if (storeId <= 0 || orderId <= 0) return null;
+    return '${backend.origin}/api/manager/$storeId/orders/$orderId';
+  }
 }

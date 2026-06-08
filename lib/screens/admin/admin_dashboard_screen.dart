@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../providers/admin_provider.dart';
 import '../../models/order_model.dart';
+import 'admin_order_detail.dart';
 
 class AdminDashboardScreen extends StatelessWidget {
   const AdminDashboardScreen({super.key});
@@ -206,11 +207,16 @@ class _RecentOrderTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final color = _statusColor(order.status);
-    return Container(
+    return Material(
+      color: Colors.white,
+      borderRadius: BorderRadius.circular(12),
+      child: InkWell(
+        onTap: () => showAdminOrderDetail(context, order),
+        borderRadius: BorderRadius.circular(12),
+        child: Container(
       margin: const EdgeInsets.only(bottom: 8),
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: Colors.white,
         borderRadius: BorderRadius.circular(12),
         border: Border.all(color: const Color(0xFFF3F4F6)),
       ),
@@ -269,7 +275,11 @@ class _RecentOrderTile extends StatelessWidget {
               ),
             ],
           ),
+          const SizedBox(width: 4),
+          const Icon(Icons.chevron_right, size: 18, color: Color(0xFF9CA3AF)),
         ],
+      ),
+    ),
       ),
     );
   }

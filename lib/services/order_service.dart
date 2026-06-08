@@ -7,6 +7,7 @@ import '../models/order_model.dart';
 import 'auth_service.dart';
 import 'backend_admin_api.dart';
 import 'store_api_bridge.dart';
+import '../utils/api_auth_messages.dart';
 
 class OrderService {
   OrderService._();
@@ -93,8 +94,15 @@ class OrderService {
           error: null,
         );
       }
-      if (code == 401 || code == 403) {
-        return (orders: <Order>[], error: 'Accès admin refusé sur ${backend.name}.');
+      if (isStoreApiAuthStatus(code)) {
+        return (
+          orders: <Order>[],
+          error: storeApiAuthErrorMessage(
+            statusCode: code,
+            backendName: backend.name,
+            context: 'admin',
+          ),
+        );
       }
       return (orders: <Order>[], error: 'Erreur $code sur ${backend.name}.');
     } catch (e) {
@@ -116,6 +124,64 @@ class OrderService {
     final list = List<Order>.from(result.orders);
     list.sort((a, b) => b.createdAt.compareTo(a.createdAt));
     return list;
+  }
+
+  /// Détail complet d'une commande admin (articles, client, livreur…).
+  Future<Order> fetchAdminOrderDetail(Order order) async {
+    if (await _useLocalOrders()) {
+      final local = await OrdersDao.instance.getOrderById(order.id);
+      return local ?? order;
+    }
+
+    final backendId = order.backendId;
+    if (backendId == null) return order;
+
+    final backends = await _sessionBackends();
+    final backend = backends.where((b) => b.id == backendId).firstOrNull;
+    if (backend == null) return order;
+
+    final token = await StoreApiBridge.instance.getJwt(backendId);
+    if (token == null) return order;
+
+    final session = await StoreApiBridge.instance.resolveAdminSession(
+      backendId: backendId,
+      backend: backend,
+      token: token,
+    );
+    final managerStoreId = await StoreApiBridge.instance.resolveManagerStoreId(
+      backendId: backendId,
+      backend: backend,
+      token: token,
+      session: session,
+    );
+    final storeId = order.store?.id ?? managerStoreId;
+    if (storeId == null || storeId <= 0) return order;
+
+    final url = BackendAdminApi.adminOrderDetailUrl(
+      backend: backend,
+      storeId: storeId,
+      orderId: order.id,
+    );
+    if (url == null) return order;
+
+    try {
+      final res = await StoreApiBridge.instance.dio.get<dynamic>(
+        url,
+        options: Options(
+          headers: {'Authorization': 'Bearer $token', 'Accept': 'application/json'},
+        ),
+      );
+      if ((res.statusCode ?? 0) == 200 && res.data is Map) {
+        return Order.fromJson(
+          Map<String, dynamic>.from(res.data as Map),
+          backendId: backend.id,
+          backendName: backend.name,
+        );
+      }
+    } catch (e) {
+      if (kDebugMode) debugPrint('[StoreAPI] détail commande: $e');
+    }
+    return order;
   }
 
   Future<List<Order>> fetchAdminOrders({int size = 200}) async {
@@ -219,17 +285,43 @@ class OrderService {
     return _fetchDeliveryList('/api/delivery/orders/my-orders');
   }
 
+  /// Livraisons terminées par le livreur connecté (historique personnel).
+  Future<List<Order>> fetchDeliveryHistory({int size = 200}) async {
+    if (await _useLocalOrders()) {
+      final userId = await AuthService.instance.getCurrentUserId();
+      if (userId == null) {
+        throw Exception('Session expirée. Reconnectez-vous.');
+      }
+      return OrdersDao.instance.getDeliveryHistory(userId);
+    }
+    return _fetchDeliveryList(
+      '/api/delivery/orders/history',
+      size: size,
+      sort: 'updatedAt,desc',
+    );
+  }
+
   Future<bool> _useLocalOrders() async {
     if (await AuthService.instance.isLocalOnlySession()) return true;
     final backends = await _sessionBackends();
     return backends.isEmpty;
   }
 
-  Future<List<Order>> _fetchDeliveryList(String path) async {
+  Future<List<Order>> _fetchDeliveryList(
+    String path, {
+    int size = 200,
+    String? sort,
+  }) async {
     final backends = await _sessionBackends();
     if (backends.isEmpty) {
       throw Exception('Aucun serveur connecté. Reconnectez-vous.');
     }
+
+    final query = <String>[
+      if (size > 0) 'size=$size',
+      if (sort != null && sort.isNotEmpty) 'sort=$sort',
+    ];
+    final pathWithQuery = query.isEmpty ? path : '$path?${query.join('&')}';
 
     final merged = <Order>[];
     Object? lastError;
@@ -239,7 +331,7 @@ class OrderService {
       if (token == null) continue;
       try {
         final res = await StoreApiBridge.instance.dio.get<dynamic>(
-          '${backend.origin}$path',
+          '${backend.origin}$pathWithQuery',
           options: Options(
             headers: {'Authorization': 'Bearer $token', 'Accept': 'application/json'},
           ),
@@ -256,7 +348,11 @@ class OrderService {
       throw Exception('Impossible de charger les commandes ($lastError)');
     }
 
-    merged.sort((a, b) => b.createdAt.compareTo(a.createdAt));
+    merged.sort((a, b) {
+      final aDate = a.updatedAt ?? a.createdAt;
+      final bDate = b.updatedAt ?? b.createdAt;
+      return bDate.compareTo(aDate);
+    });
     return merged;
   }
 

@@ -3,6 +3,7 @@ import 'package:dio/dio.dart';
 import '../models/backend_connection_test_result.dart';
 import '../models/backend_server_model.dart';
 import '../utils/url_normalize.dart';
+import 'store_api_bridge.dart';
 
 /// Test de joignabilité + mini-login JWT + accès livraison (STORE-ALL).
 class BackendConnectionService {
@@ -81,7 +82,51 @@ class BackendConnectionService {
       return BackendConnectionTestResult(steps: steps);
     }
 
-    final login = await _testJwtLogin(base, user, pass);
+    ({
+      BackendTestStep step,
+      bool ok,
+      String? token,
+      bool isDelivery,
+      bool isAdmin,
+      bool isSuperAdmin,
+      int? storeId,
+    }) login;
+
+    if (await StoreApiBridge.instance.hasActiveSessionForOrigin(base)) {
+      final existingToken = await StoreApiBridge.instance.getJwtForOrigin(base);
+      final backend = await StoreApiBridge.instance.getAuthenticatedBackendForOrigin(base);
+      var isSuperAdmin = false;
+      var storeId = backend?.managerStoreId;
+      var isAdmin = false;
+      var isDelivery = true;
+      if (backend?.id != null && existingToken != null) {
+        final session = await StoreApiBridge.instance.resolveAdminSession(
+          backendId: backend!.id!,
+          backend: backend,
+          token: existingToken,
+        );
+        isSuperAdmin = session.isSuperAdmin;
+        storeId ??= session.storeId;
+        isAdmin = session.canFetchAdminOrders;
+        isDelivery = !isAdmin;
+      }
+      login = (
+        step: const BackendTestStep(
+          label: 'Login JWT',
+          ok: true,
+          skipped: true,
+          detail: 'session mobile déjà active (pas de re-login)',
+        ),
+        ok: existingToken != null,
+        token: existingToken,
+        isDelivery: isDelivery,
+        isAdmin: isAdmin,
+        isSuperAdmin: isSuperAdmin,
+        storeId: storeId,
+      );
+    } else {
+      login = await _testJwtLogin(base, user, pass);
+    }
     steps.add(login.step);
 
     if (!login.ok || login.token == null || login.token!.isEmpty) {
@@ -224,7 +269,11 @@ class BackendConnectionService {
     try {
       final res = await _dio.post<dynamic>(
         url,
-        data: {'username': username, 'password': password},
+        data: {
+          'username': username,
+          'password': password,
+          'clientType': StoreApiBridge.storeAllClientType,
+        },
         options: Options(
           contentType: Headers.jsonContentType,
           headers: {'Accept': 'application/json'},

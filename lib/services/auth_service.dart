@@ -7,6 +7,7 @@ import '../models/backend_login_status.dart';
 import '../models/backend_server_model.dart';
 import '../models/user_model.dart';
 import 'store_api_bridge.dart';
+import '../utils/url_normalize.dart';
 
 class AuthLoginResult {
   final UserModel user;
@@ -33,6 +34,11 @@ class AuthService {
   static const _userKey = 'store_api_user_json';
 
   Future<void> logout() async {
+    await clearLocalSessionOnly();
+  }
+
+  /// Efface la session locale sans appeler le serveur (token déjà invalide).
+  Future<void> clearLocalSessionOnly() async {
     await StoreApiBridge.instance.clearAllSessions();
     await _storage.delete(key: _userKey);
   }
@@ -124,20 +130,39 @@ class AuthService {
     BackendLoginResult? primaryLogin;
     String? lastError;
 
+    // Un seul login par origine (évite d'invalider le JWT sur le même STORE-ALL).
+    final groupsByOrigin = <String, List<BackendServer>>{};
     for (final backend in backends) {
       if (backend.id == null) continue;
+      final origin = normalizeBackendOrigin(backend.origin) ?? backend.origin.trim();
+      groupsByOrigin.putIfAbsent(origin, () => []).add(backend);
+    }
+
+    for (final group in groupsByOrigin.values) {
+      if (group.isEmpty) continue;
+      final representative = group.first;
       try {
         final result = await StoreApiBridge.instance.loginOnBackend(
-          backend: backend,
+          backend: representative,
           username: usernameOrEmail,
           password: password,
         );
-        successes.add(backend);
+        for (final backend in group) {
+          if (backend.id == null) continue;
+          await StoreApiBridge.instance.saveJwt(backend.id!, result.token);
+          await StoreApiBridge.instance.saveBackendSession(
+            backend.id!,
+            result.sessionInfo,
+          );
+          successes.add(backend);
+        }
         primaryLogin ??= result;
       } catch (e) {
         final msg = e.toString().replaceFirst('Exception: ', '');
         lastError = msg;
-        failures.add(BackendLoginFailure(backend: backend, message: msg));
+        for (final backend in group) {
+          failures.add(BackendLoginFailure(backend: backend, message: msg));
+        }
       }
     }
 

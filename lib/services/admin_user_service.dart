@@ -7,6 +7,7 @@ import '../models/user_model.dart';
 import 'auth_service.dart';
 import 'backend_admin_api.dart';
 import 'store_api_bridge.dart';
+import '../utils/api_auth_messages.dart';
 
 class AdminUserService {
   AdminUserService._();
@@ -98,8 +99,15 @@ class AdminUserService {
       if (code == 200) {
         return (drivers: _parseDrivers(res.data, backend: backend), error: null);
       }
-      if (code == 401 || code == 403) {
-        return (drivers: <UserModel>[], error: 'Accès utilisateurs refusé sur ${backend.name}.');
+      if (isStoreApiAuthStatus(code)) {
+        return (
+          drivers: <UserModel>[],
+          error: storeApiAuthErrorMessage(
+            statusCode: code,
+            backendName: backend.name,
+            context: 'users',
+          ),
+        );
       }
       return (
         drivers: <UserModel>[],

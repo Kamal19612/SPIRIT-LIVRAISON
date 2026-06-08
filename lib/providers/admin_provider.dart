@@ -54,6 +54,9 @@ class AdminProvider extends ChangeNotifier {
   bool _isAuthErrorMessage(String msg) {
     final lower = msg.toLowerCase();
     return lower.contains('accès admin refusé') ||
+        lower.contains('accès utilisateurs refusé') ||
+        lower.contains('accès refusé') ||
+        lower.contains('session invalidée') ||
         lower.contains('session expirée') ||
         lower.contains('401') ||
         lower.contains('403');

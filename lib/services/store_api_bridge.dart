@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:dio/dio.dart';
@@ -42,10 +43,14 @@ class BackendLoginResult {
 
 /// Client API multi-backend (STORE-ALL / Spring compatible).
 class StoreApiBridge {
-  StoreApiBridge._();
+  StoreApiBridge._() {
+    _installAuthInterceptor();
+  }
   static final StoreApiBridge instance = StoreApiBridge._();
 
   static const _authBackendIdsKey = 'auth_backend_ids';
+  /// Canal JWT distinct du web admin STORE-ALL (sessions parallèles).
+  static const storeAllClientType = 'mobile';
 
   final _storage = const FlutterSecureStorage();
   final Dio _dio = Dio(
@@ -56,7 +61,38 @@ class StoreApiBridge {
     ),
   );
 
+  bool _sessionInvalidationHandling = false;
+  Future<void> Function()? onSessionInvalidated;
+
+  void resetSessionInvalidationGuard() {
+    _sessionInvalidationHandling = false;
+  }
+
   Dio get dio => _dio;
+
+  void _installAuthInterceptor() {
+    _dio.interceptors.removeWhere((i) => i is InterceptorsWrapper);
+    _dio.interceptors.add(
+      InterceptorsWrapper(
+        onResponse: (response, handler) {
+          final code = response.statusCode ?? 0;
+          final path = response.requestOptions.path;
+          if (code == 401 &&
+              !path.contains('/api/auth/login') &&
+              response.requestOptions.headers['Authorization'] != null) {
+            unawaited(_notifySessionInvalidated());
+          }
+          handler.next(response);
+        },
+      ),
+    );
+  }
+
+  Future<void> _notifySessionInvalidated() async {
+    if (_sessionInvalidationHandling) return;
+    _sessionInvalidationHandling = true;
+    await onSessionInvalidated?.call();
+  }
 
   String _jwtKey(int backendId) => 'backend_jwt_$backendId';
   String _sessionKey(int backendId) => 'backend_session_$backendId';
@@ -76,6 +112,38 @@ class StoreApiBridge {
   Future<List<BackendServer>> getAuthenticatedBackends() async {
     final ids = await getAuthenticatedBackendIds();
     return BackendsDao.instance.getByIds(ids);
+  }
+
+  /// Session JWT active pour une origine (évite un login de test qui invalide le token).
+  Future<bool> hasActiveSessionForOrigin(String rawOrigin) async {
+    final jwt = await getJwtForOrigin(rawOrigin);
+    return jwt != null && jwt.isNotEmpty;
+  }
+
+  Future<String?> getJwtForOrigin(String rawOrigin) async {
+    final normalized = normalizeBackendOrigin(rawOrigin);
+    if (normalized == null) return null;
+    final backends = await getAuthenticatedBackends();
+    for (final backend in backends) {
+      if (backend.id == null) continue;
+      final origin = normalizeBackendOrigin(backend.origin) ?? backend.origin;
+      if (origin != normalized) continue;
+      final jwt = await getJwt(backend.id!);
+      if (jwt != null && jwt.isNotEmpty) return jwt;
+    }
+    return null;
+  }
+
+  Future<BackendServer?> getAuthenticatedBackendForOrigin(String rawOrigin) async {
+    final normalized = normalizeBackendOrigin(rawOrigin);
+    if (normalized == null) return null;
+    final backends = await getAuthenticatedBackends();
+    for (final backend in backends) {
+      if (backend.id == null) continue;
+      final origin = normalizeBackendOrigin(backend.origin) ?? backend.origin;
+      if (origin == normalized) return backend;
+    }
+    return null;
   }
 
   Future<void> setAuthenticatedBackendIds(List<int> ids) async {
@@ -217,7 +285,11 @@ class StoreApiBridge {
     try {
       final res = await _dio.post<dynamic>(
         url,
-        data: {'username': username.trim(), 'password': password},
+        data: {
+          'username': username.trim(),
+          'password': password,
+          'clientType': storeAllClientType,
+        },
         options: Options(
           contentType: Headers.jsonContentType,
           headers: {'Accept': 'application/json'},
@@ -263,6 +335,7 @@ class StoreApiBridge {
           ? nom.trim()
           : username.trim();
 
+      resetSessionInvalidationGuard();
       await saveJwt(backend.id!, token);
       await saveBackendSession(backend.id!, BackendSessionInfo(
         storeId: storeId,

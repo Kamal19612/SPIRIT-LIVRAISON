@@ -12,7 +12,9 @@ import '../services/fcm_service.dart';
 import '../services/location_service.dart';
 import '../services/notification_service.dart';
 import '../widgets/backend_connection_banner.dart';
+import '../widgets/delivery_history_tile.dart';
 import '../widgets/order_card.dart';
+import '../widgets/order_detail_sheet.dart';
 
 class DashboardScreen extends StatefulWidget {
   const DashboardScreen({super.key});
@@ -148,9 +150,12 @@ class _DashboardScreenState extends State<DashboardScreen>
   void _onTabChanged(int index) {
     if (!mounted) return;
     setState(() => _selectedTab = index);
-    context.read<OrdersProvider>().loadOrders(
-      index == 0 ? 'available' : 'my-orders',
-    );
+    final tab = switch (index) {
+      0 => 'available',
+      1 => 'my-orders',
+      _ => 'history',
+    };
+    context.read<OrdersProvider>().loadOrders(tab);
   }
 
   Future<void> _handleLogout() async {
@@ -326,6 +331,7 @@ class _DashboardScreenState extends State<DashboardScreen>
     final counts = [
       orders.availableOrders.length,
       orders.myOrders.length,
+      orders.deliveryHistory.length,
     ];
     return Container(
       padding: const EdgeInsets.all(5),
@@ -343,7 +349,8 @@ class _DashboardScreenState extends State<DashboardScreen>
       child: Row(
         children: [
           _buildTab('Disponibles', 0, counts[0]),
-          _buildTab('Mes Courses', 1, counts[1]),
+          _buildTab('En cours', 1, counts[1]),
+          _buildTab('Historique', 2, counts[2]),
         ],
       ),
     );
@@ -367,7 +374,7 @@ class _DashboardScreenState extends State<DashboardScreen>
               Text(
                 label,
                 style: TextStyle(
-                  fontSize: 13,
+                  fontSize: 11,
                   fontWeight: FontWeight.w700,
                   color: isActive ? Colors.white : _gray500,
                 ),
@@ -401,6 +408,26 @@ class _DashboardScreenState extends State<DashboardScreen>
 
   Widget _buildOrderList(OrdersProvider orders, Color primary) {
     if (orders.isLoading) return _buildSkeleton();
+
+    if (_selectedTab == 2) {
+      final history = orders.deliveryHistory;
+      if (history.isEmpty) return _buildEmptyState();
+      return RefreshIndicator(
+        onRefresh: () => orders.refresh(),
+        child: ListView.builder(
+          physics: const AlwaysScrollableScrollPhysics(),
+          padding: const EdgeInsets.only(bottom: 32),
+          itemCount: history.length,
+          itemBuilder: (_, i) {
+            final order = history[i];
+            return DeliveryHistoryTile(
+              order: order,
+              onTap: () => showOrderDetailSheet(context, order, mode: 'history'),
+            );
+          },
+        ),
+      );
+    }
 
     final list =
         _selectedTab == 0 ? orders.availableOrders : orders.myOrders;
@@ -466,7 +493,8 @@ class _DashboardScreenState extends State<DashboardScreen>
   }
 
   Widget _buildEmptyState() {
-    final available = _selectedTab == 0;
+    final isAvailable = _selectedTab == 0;
+    final isHistory = _selectedTab == 2;
     return Center(
       child: Padding(
         padding: const EdgeInsets.symmetric(vertical: 64, horizontal: 32),
@@ -482,14 +510,22 @@ class _DashboardScreenState extends State<DashboardScreen>
                 border: Border.all(color: _gray100, width: 2),
               ),
               child: Icon(
-                available ? Icons.local_shipping_outlined : Icons.check_circle_outline,
+                isHistory
+                    ? Icons.history
+                    : isAvailable
+                        ? Icons.local_shipping_outlined
+                        : Icons.check_circle_outline,
                 size: 48,
                 color: const Color(0xFFE5E7EB),
               ),
             ),
             const SizedBox(height: 12),
             Text(
-              available ? 'Aucune commande' : 'Vous êtes libre !',
+              isHistory
+                  ? 'Aucune livraison terminée'
+                  : isAvailable
+                      ? 'Aucune commande'
+                      : 'Vous êtes libre !',
               style: const TextStyle(
                 fontSize: 17,
                 fontWeight: FontWeight.w700,
@@ -498,9 +534,11 @@ class _DashboardScreenState extends State<DashboardScreen>
             ),
             const SizedBox(height: 6),
             Text(
-              available
-                  ? 'Revenez plus tard pour de nouvelles courses.'
-                  : "Prenez une commande dans l'onglet « Disponibles ».",
+              isHistory
+                  ? 'Vos courses livrées apparaîtront ici.'
+                  : isAvailable
+                      ? 'Revenez plus tard pour de nouvelles courses.'
+                      : "Prenez une commande dans l'onglet « Disponibles ».",
               textAlign: TextAlign.center,
               style: const TextStyle(fontSize: 13, color: _gray500, height: 1.5),
             ),
