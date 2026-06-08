@@ -294,11 +294,61 @@ class OrderService {
       }
       return OrdersDao.instance.getDeliveryHistory(userId);
     }
-    return _fetchDeliveryList(
+
+    final fromHistory = await _fetchDeliveryList(
       '/api/delivery/orders/history',
       size: size,
       sort: 'updatedAt,desc',
     );
+    if (fromHistory.isNotEmpty) return fromHistory;
+
+    final historyOk = await _deliveryPathAvailable('/api/delivery/orders/history');
+    if (historyOk) return fromHistory;
+
+    if (kDebugMode) {
+      debugPrint('[StoreAPI] /history indisponible — repli via /sync');
+    }
+    return _fetchDeliveryHistoryViaSync(size: size);
+  }
+
+  Future<bool> _deliveryPathAvailable(String path) async {
+    final backends = await _sessionBackends();
+    for (final backend in backends) {
+      final token = await StoreApiBridge.instance.getJwt(backend.id!);
+      if (token == null) continue;
+      try {
+        final res = await StoreApiBridge.instance.dio.get<dynamic>(
+          '${backend.origin}$path?size=1',
+          options: Options(
+            headers: {'Authorization': 'Bearer $token', 'Accept': 'application/json'},
+          ),
+        );
+        final code = res.statusCode ?? 0;
+        if (code == 200) return true;
+        if (code == 401 || code == 403) return true;
+      } catch (_) {}
+    }
+    return false;
+  }
+
+  Future<List<Order>> _fetchDeliveryHistoryViaSync({int size = 200}) async {
+    final user = await AuthService.instance.tryRestoreSession();
+    final username = user?.username.trim().toLowerCase() ?? '';
+    if (username.isEmpty) return [];
+
+    final since = DateTime.now().subtract(const Duration(days: 365)).toIso8601String();
+    final all = await _fetchDeliveryList(
+      '/api/delivery/orders/sync?lastSync=${Uri.encodeComponent(since)}',
+      size: size,
+    );
+
+    return all.where((o) {
+      if (o.status != 'DELIVERED') return false;
+      final agent = o.deliveryAgent;
+      if (agent == null) return false;
+      final agentName = agent['username']?.toString().trim().toLowerCase() ?? '';
+      return agentName == username;
+    }).toList();
   }
 
   Future<bool> _useLocalOrders() async {
@@ -321,7 +371,9 @@ class OrderService {
       if (size > 0) 'size=$size',
       if (sort != null && sort.isNotEmpty) 'sort=$sort',
     ];
-    final pathWithQuery = query.isEmpty ? path : '$path?${query.join('&')}';
+    final sep = path.contains('?') ? '&' : '?';
+    final pathWithQuery =
+        query.isEmpty ? path : '$path$sep${query.join('&')}';
 
     final merged = <Order>[];
     Object? lastError;
@@ -338,6 +390,10 @@ class OrderService {
         );
         if ((res.statusCode ?? 0) == 200) {
           merged.addAll(_parseOrdersFromResponseData(res.data, backend: backend));
+        } else if (kDebugMode) {
+          debugPrint(
+            '[StoreAPI] GET ${backend.origin}$pathWithQuery → ${res.statusCode} (ignoré)',
+          );
         }
       } catch (e) {
         lastError = e;
