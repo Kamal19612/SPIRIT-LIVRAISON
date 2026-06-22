@@ -194,19 +194,25 @@ class NotificationService {
     required String title,
     required String body,
     Map<String, dynamic>? webhookPayload,
+    bool highPriority = false,
   }) async {
     if (!_initialized) return;
     try {
       const payloadStr = null;
 
-      const androidDetails = AndroidNotificationDetails(
+      final androidDetails = AndroidNotificationDetails(
         'delivery_orders',
-        'Nouvelles commandes',
-        importance: Importance.defaultImportance,
-        priority: Priority.defaultPriority,
+        highPriority ? 'Nouvelles livraisons' : 'Nouvelles commandes',
+        channelDescription: highPriority
+            ? 'Alertes pour les nouvelles livraisons et commandes'
+            : 'Notifications pour les nouvelles commandes',
+        importance: highPriority ? Importance.max : Importance.defaultImportance,
+        priority: highPriority ? Priority.high : Priority.defaultPriority,
+        playSound: highPriority,
+        enableVibration: highPriority,
       );
       const iosDetails = DarwinNotificationDetails();
-      const details = NotificationDetails(android: androidDetails, iOS: iosDetails);
+      final details = NotificationDetails(android: androidDetails, iOS: iosDetails);
 
       await _plugin.show(_notifId++, title, body, details, payload: payloadStr);
     } catch (_) {}

@@ -14,7 +14,7 @@ class DeliveryAlertService {
 
   static bool isNewDeliveryEvent(String type) {
     final n = normalizeEventType(type);
-    return n == 'new_delivery' || n == 'new_order' || n == 'order_created';
+    return n == 'new_delivery' || n == 'order_created';
   }
 
   /// Affiche une notification système (premier plan, arrière-plan ou veille).

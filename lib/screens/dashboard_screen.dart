@@ -64,7 +64,7 @@ class _DashboardScreenState extends State<DashboardScreen>
 
       ConnectionKeepAliveService.instance.setHeartbeatCallback(() async {
         if (!mounted) return;
-        await ordersProvider.refresh(silent: true);
+        await ordersProvider.refresh(silent: true, alertOnNewOrders: true);
       });
       await ConnectionKeepAliveService.instance.syncWithSession();
       if (!mounted) return;
@@ -76,7 +76,7 @@ class _DashboardScreenState extends State<DashboardScreen>
       _pollTimer = Timer.periodic(const Duration(seconds: 8), (_) {
         if (!mounted) return;
         if (!_localOnly && !_appInForeground) return;
-        ordersProvider.refresh(silent: true, alertOnNewOrders: _localOnly);
+        ordersProvider.refresh(silent: true, alertOnNewOrders: true);
       });
 
       _locationService = locationService;

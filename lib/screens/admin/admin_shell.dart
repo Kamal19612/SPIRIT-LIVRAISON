@@ -7,7 +7,9 @@ import '../../providers/admin_provider.dart';
 import '../../providers/app_config_provider.dart';
 import '../../providers/auth_provider.dart';
 import '../../services/connection_keep_alive_service.dart';
+import '../../services/delivery_alert_service.dart';
 import '../../services/fcm_service.dart';
+import '../../services/notification_service.dart';
 import '../../services/store_sse_service.dart';
 import '../../widgets/backend_connection_banner.dart';
 import 'admin_dashboard_screen.dart';
@@ -60,6 +62,7 @@ class _AdminShellState extends State<AdminShell> with WidgetsBindingObserver {
     final auth = context.read<AuthProvider>();
     if (auth.user?.isAdmin != true) return;
 
+    await NotificationService.instance.ensurePermission();
     FcmService.instance.listenForeground(onEvent: _onFcmEvent);
 
     ConnectionKeepAliveService.instance.setHeartbeatCallback(() async {
@@ -80,8 +83,13 @@ class _AdminShellState extends State<AdminShell> with WidgetsBindingObserver {
     final admin = context.read<AdminProvider>();
     switch (type) {
       case 'new_order':
+        unawaited(admin.syncFromDatabase(orders: true, silent: true));
+        break;
       case 'order_status':
       case 'new_delivery':
+        if (type == 'new_delivery') {
+          unawaited(DeliveryAlertService.instance.fromEventPayload(data));
+        }
         unawaited(admin.syncFromDatabase(orders: true, silent: true));
         break;
       case 'staff_changed':
@@ -90,6 +98,23 @@ class _AdminShellState extends State<AdminShell> with WidgetsBindingObserver {
       default:
         break;
     }
+  }
+
+  Future<void> _alertAdminNewOrder(Map<String, dynamic> data) async {
+    final orderNumber = data['orderNumber']?.toString() ??
+        data['order_number']?.toString() ??
+        '';
+    final customer = data['customerName']?.toString() ?? '';
+    final body = orderNumber.isEmpty
+        ? (customer.isNotEmpty ? customer : 'Nouvelle commande reçue')
+        : (customer.isNotEmpty
+            ? 'Commande #$orderNumber — $customer'
+            : 'Commande #$orderNumber');
+    await NotificationService.instance.showStatusNotification(
+      title: '🛒 Nouvelle commande',
+      body: body,
+      highPriority: true,
+    );
   }
 
   void _onSseEvent(
@@ -104,8 +129,14 @@ class _AdminShellState extends State<AdminShell> with WidgetsBindingObserver {
     final admin = context.read<AdminProvider>();
     switch (type) {
       case 'new_order':
+        unawaited(_alertAdminNewOrder(data));
+        unawaited(admin.syncFromDatabase(orders: true, backendId: backendId, silent: true));
+        break;
       case 'order_status':
       case 'new_delivery':
+        if (type == 'new_delivery') {
+          unawaited(DeliveryAlertService.instance.fromEventPayload(data));
+        }
         unawaited(admin.syncFromDatabase(orders: true, backendId: backendId, silent: true));
         break;
       case 'staff_changed':

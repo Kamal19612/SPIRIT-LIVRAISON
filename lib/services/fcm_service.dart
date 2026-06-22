@@ -81,10 +81,14 @@ class FcmService {
     required void Function(String type, Map<String, dynamic> data) onEvent,
   }) {
     _foregroundSub?.cancel();
-    _foregroundSub = FirebaseMessaging.onMessage.listen((RemoteMessage msg) {
+    _foregroundSub = FirebaseMessaging.onMessage.listen((RemoteMessage msg) async {
       final type = (msg.data['type'] ?? '').toString();
-      if (type.isEmpty) return;
-      onEvent(type, Map<String, dynamic>.from(msg.data));
+      if (type.isNotEmpty) {
+        onEvent(type, Map<String, dynamic>.from(msg.data));
+      }
+      // Toujours afficher une notification locale (premier plan) : le callback
+      // UI peut ne pas déclencher d'alerte (ex. admin) ou arriver après le refresh.
+      await _showLocalNotificationFromMessage(msg);
     });
   }
 }
@@ -112,9 +116,14 @@ Future<void> _showLocalNotificationFromMessage(RemoteMessage msg) async {
   }
 
   if (type == 'new_order') {
+    final t = title.isNotEmpty ? title : '🛒 Nouvelle commande';
+    final b = body.isNotEmpty
+        ? body
+        : (orderNumber.isNotEmpty ? 'Commande #$orderNumber' : 'Nouvelle commande reçue');
     await NotificationService.instance.showStatusNotification(
-      title: title.isNotEmpty ? title : 'Nouvelle commande',
-      body: body.isNotEmpty ? body : (orderNumber.isNotEmpty ? 'Commande #$orderNumber' : 'Nouvelle commande'),
+      title: t,
+      body: b,
+      highPriority: true,
     );
     return;
   }

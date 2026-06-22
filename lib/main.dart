@@ -18,6 +18,7 @@ import 'package:firebase_messaging/firebase_messaging.dart';
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await LocalDatabase.instance.init();
+  await NotificationService.instance.init();
 
   final authProvider = AuthProvider();
   final appConfigProvider = AppConfigProvider();
@@ -34,7 +35,6 @@ void main() async {
     ),
   );
 
-  await NotificationService.instance.init();
   try {
     await FcmService.instance.init();
     FirebaseMessaging.onBackgroundMessage(firebaseMessagingBackgroundHandler);
