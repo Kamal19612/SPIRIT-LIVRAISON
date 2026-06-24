@@ -14,18 +14,26 @@ export PATH="$JAVA_HOME/bin:$ANDROID_SDK/cmdline-tools/latest/bin:$ANDROID_SDK/p
 VERSION="$("$FLUTTER" pub run --no-sound-null-safety 2>/dev/null || true)"
 VERSION_NAME="$(grep '^version:' "$ROOT/pubspec.yaml" | awk '{print $2}' | cut -d+ -f1)"
 OUT_DIR="$ROOT/releases"
-OUT_APK="$OUT_DIR/SPIRIT-LIVRAISON-v${VERSION_NAME}.apk"
 
 echo "==> Flutter pub get"
 cd "$ROOT"
 "$FLUTTER" pub get
 
-echo "==> Build APK release"
-"$FLUTTER" build apk --release
+echo "==> Build APK release (split par architecture)"
+"$FLUTTER" build apk --release --split-per-abi
 
 mkdir -p "$OUT_DIR"
-cp "$ROOT/build/app/outputs/flutter-apk/app-release.apk" "$OUT_APK"
+APK_DIR="$ROOT/build/app/outputs/flutter-apk"
+for abi in arm64-v8a armeabi-v7a x86_64; do
+  src="$APK_DIR/app-${abi}-release.apk"
+  if [[ -f "$src" ]]; then
+    dest="$OUT_DIR/SPIRIT-LIVRAISON-v${VERSION_NAME}-${abi}.apk"
+    cp "$src" "$dest"
+    echo "  $dest"
+  fi
+done
 
 echo ""
-echo "APK prêt : $OUT_APK"
-ls -lh "$OUT_APK"
+echo "APK prêts dans $OUT_DIR"
+echo "Téléphones récents (ex. Pixel 7a) : SPIRIT-LIVRAISON-v${VERSION_NAME}-arm64-v8a.apk"
+ls -lh "$OUT_DIR"/SPIRIT-LIVRAISON-v"${VERSION_NAME}"-*.apk 2>/dev/null || true

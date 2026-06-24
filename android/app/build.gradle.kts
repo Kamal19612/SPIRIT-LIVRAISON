@@ -1,3 +1,6 @@
+import java.util.Properties
+import java.io.StringReader
+
 plugins {
     id("com.android.application")
     id("kotlin-android")
@@ -5,6 +8,16 @@ plugins {
     id("dev.flutter.flutter-gradle-plugin")
     id("com.google.gms.google-services")
 }
+
+val keystoreProperties = Properties()
+val keystorePropertiesFile = rootProject.file("key.properties")
+if (keystorePropertiesFile.exists()) {
+    val raw = keystorePropertiesFile.readText(Charsets.UTF_8).removePrefix("\uFEFF")
+    keystoreProperties.load(StringReader(raw))
+}
+
+fun Properties.requireKey(name: String): String =
+    getProperty(name) ?: error("Missing '$name' in android/key.properties")
 
 android {
     namespace = "com.example.appstore"
@@ -32,11 +45,24 @@ android {
         versionName = flutter.versionName
     }
 
+    signingConfigs {
+        if (keystorePropertiesFile.exists()) {
+            create("release") {
+                keyAlias = keystoreProperties.requireKey("keyAlias")
+                keyPassword = keystoreProperties.requireKey("keyPassword")
+                storeFile = rootProject.file(keystoreProperties.requireKey("storeFile"))
+                storePassword = keystoreProperties.requireKey("storePassword")
+            }
+        }
+    }
+
     buildTypes {
         release {
-            // TODO: Add your own signing config for the release build.
-            // Signing with the debug keys for now, so `flutter run --release` works.
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig = if (keystorePropertiesFile.exists()) {
+                signingConfigs.getByName("release")
+            } else {
+                signingConfigs.getByName("debug")
+            }
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro",
