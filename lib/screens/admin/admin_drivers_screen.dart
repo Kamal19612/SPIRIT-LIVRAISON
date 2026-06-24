@@ -12,6 +12,7 @@ import '../../services/driver_credentials_storage.dart';
 import '../../services/cnib_text_recognition_service.dart';
 import '../../services/driver_identity_storage.dart';
 import '../../utils/cnib_ocr_parser.dart';
+import 'admin_driver_earnings_screen.dart';
 
 class AdminDriversScreen extends StatelessWidget {
   const AdminDriversScreen({super.key});
@@ -27,6 +28,14 @@ class AdminDriversScreen extends StatelessWidget {
       builder: (ctx) => Padding(
         padding: EdgeInsets.only(bottom: MediaQuery.of(ctx).viewInsets.bottom),
         child: const _AddDriverSheet(),
+      ),
+    );
+  }
+
+  void _showDriverEarnings(BuildContext context, UserModel driver) {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => AdminDriverEarningsScreen(driver: driver),
       ),
     );
   }
@@ -156,6 +165,8 @@ class AdminDriversScreen extends StatelessWidget {
                             driver: admin.drivers[i],
                             onOpenDetail: () =>
                                 _showDriverDetail(context, admin.drivers[i]),
+                            onOpenEarnings: () =>
+                                _showDriverEarnings(context, admin.drivers[i]),
                           ),
                         ),
                       ),
@@ -178,8 +189,13 @@ class AdminDriversScreen extends StatelessWidget {
 class _DriverTile extends StatelessWidget {
   final UserModel driver;
   final VoidCallback onOpenDetail;
+  final VoidCallback onOpenEarnings;
 
-  const _DriverTile({required this.driver, required this.onOpenDetail});
+  const _DriverTile({
+    required this.driver,
+    required this.onOpenDetail,
+    required this.onOpenEarnings,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -338,6 +354,12 @@ class _DriverTile extends StatelessWidget {
             padding: const EdgeInsets.only(right: 8, top: 8),
             child: Column(
               children: [
+                IconButton(
+                  onPressed: onOpenEarnings,
+                  icon: const Icon(Icons.payments_outlined),
+                  color: Theme.of(context).colorScheme.primary,
+                  tooltip: 'Livraisons & gains',
+                ),
                 Switch(
                   value: driver.active,
                   onChanged: (val) => admin.toggleDriver(driver, val),
@@ -519,7 +541,25 @@ class _DriverDetailSheetState extends State<_DriverDetailSheet> {
                 ],
               ),
             ],
-            const SizedBox(height: 20),
+            const SizedBox(height: 16),
+            FilledButton.icon(
+              onPressed: () {
+                Navigator.pop(context);
+                Navigator.of(context).push(
+                  MaterialPageRoute<void>(
+                    builder: (_) => AdminDriverEarningsScreen(driver: driver),
+                  ),
+                );
+              },
+              icon: const Icon(Icons.payments_outlined, size: 20),
+              label: const Text('Livraisons & gains'),
+              style: FilledButton.styleFrom(
+                backgroundColor: primary,
+                foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(vertical: 14),
+              ),
+            ),
+            const SizedBox(height: 12),
             OutlinedButton.icon(
               onPressed: () => _confirmDelete(context),
               icon: const Icon(Icons.delete_outline, color: Color(0xFFDC2626)),

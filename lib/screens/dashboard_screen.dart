@@ -11,8 +11,12 @@ import '../services/delivery_sse_service.dart';
 import '../services/fcm_service.dart';
 import '../services/location_service.dart';
 import '../services/notification_service.dart';
+import '../services/driver_earnings_service.dart';
+import '../utils/delivery_earnings.dart';
 import '../widgets/backend_connection_banner.dart';
-import '../widgets/delivery_history_tile.dart';
+import '../widgets/delivery_earnings_tile.dart';
+import '../widgets/driver_earnings_summary_card.dart';
+import '../widgets/earnings_date_bar.dart';
 import '../widgets/order_card.dart';
 import '../widgets/order_detail_sheet.dart';
 
@@ -30,6 +34,7 @@ class _DashboardScreenState extends State<DashboardScreen>
   Timer? _pollTimer;
   bool _appInForeground = true;
   bool _localOnly = false;
+  late DateTime _historyDate;
 
   static const Color _gray50 = Color(0xFFF9FAFB);
   static const Color _gray100 = Color(0xFFF3F4F6);
@@ -40,6 +45,8 @@ class _DashboardScreenState extends State<DashboardScreen>
   @override
   void initState() {
     super.initState();
+    final now = DateTime.now();
+    _historyDate = DateTime(now.year, now.month, now.day);
     WidgetsBinding.instance.addObserver(this);
     WidgetsBinding.instance.addPostFrameCallback((_) => _init());
   }
@@ -410,22 +417,49 @@ class _DashboardScreenState extends State<DashboardScreen>
     if (orders.isLoading) return _buildSkeleton();
 
     if (_selectedTab == 2) {
-      final history = orders.deliveryHistory;
-      if (history.isEmpty) return _buildEmptyState();
-      return RefreshIndicator(
-        onRefresh: () => orders.refresh(),
-        child: ListView.builder(
-          physics: const AlwaysScrollableScrollPhysics(),
-          padding: const EdgeInsets.only(bottom: 32),
-          itemCount: history.length,
-          itemBuilder: (_, i) {
-            final order = history[i];
-            return DeliveryHistoryTile(
-              order: order,
-              onTap: () => showOrderDetailSheet(context, order, mode: 'history'),
-            );
-          },
-        ),
+      final summary = DriverEarningsService.instance.summarizeDay(
+        orders.deliveryHistory,
+        _historyDate,
+      );
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          EarningsDateBar(
+            selectedDate: _historyDate,
+            onDateChanged: (d) => setState(() => _historyDate = d),
+          ),
+          const SizedBox(height: 12),
+          DriverEarningsSummaryCard(
+            deliveryCount: summary.deliveryCount,
+            totalGain: summary.totalGain,
+            subtitle: formatDisplayDate(_historyDate),
+          ),
+          const SizedBox(height: 12),
+          Expanded(
+            child: summary.orders.isEmpty
+                ? _buildEmptyState()
+                : RefreshIndicator(
+                    onRefresh: () => orders.refresh(),
+                    child: ListView.builder(
+                      physics: const AlwaysScrollableScrollPhysics(),
+                      padding: const EdgeInsets.only(bottom: 32),
+                      itemCount: summary.orders.length,
+                      itemBuilder: (_, i) {
+                        final order = summary.orders[i];
+                        return DeliveryEarningsTile(
+                          order: order,
+                          showTimeOnly: true,
+                          onTap: () => showOrderDetailSheet(
+                            context,
+                            order,
+                            mode: 'history',
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+          ),
+        ],
       );
     }
 
@@ -522,7 +556,7 @@ class _DashboardScreenState extends State<DashboardScreen>
             const SizedBox(height: 12),
             Text(
               isHistory
-                  ? 'Aucune livraison terminée'
+                  ? 'Aucune livraison ce jour-là'
                   : isAvailable
                       ? 'Aucune commande'
                       : 'Vous êtes libre !',
@@ -535,7 +569,7 @@ class _DashboardScreenState extends State<DashboardScreen>
             const SizedBox(height: 6),
             Text(
               isHistory
-                  ? 'Vos courses livrées apparaîtront ici.'
+                  ? 'Changez la date ou effectuez de nouvelles livraisons.'
                   : isAvailable
                       ? 'Revenez plus tard pour de nouvelles courses.'
                       : "Prenez une commande dans l'onglet « Disponibles ».",

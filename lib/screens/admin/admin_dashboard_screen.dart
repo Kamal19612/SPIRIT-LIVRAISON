@@ -1,13 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../providers/admin_provider.dart';
-import '../../models/order_model.dart';
-import 'admin_order_detail.dart';
+import '../../services/driver_earnings_service.dart';
+import '../../utils/delivery_earnings.dart';
+import '../../widgets/driver_earnings_charts.dart';
 
 class AdminDashboardScreen extends StatelessWidget {
   const AdminDashboardScreen({super.key});
 
-  static const Color _gray100 = Color(0xFFF3F4F6);
   static const Color _gray500 = Color(0xFF6B7280);
   static const Color _gray900 = Color(0xFF111827);
 
@@ -15,17 +15,17 @@ class AdminDashboardScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     final admin = context.watch<AdminProvider>();
     final primary = Theme.of(context).colorScheme.primary;
+    final weekGain = DriverEarningsService.instance.totalGainLastDays(admin.orders, days: 7);
 
     if (admin.isLoading) {
       return const Center(child: CircularProgressIndicator());
     }
 
-    final recent = admin.orders.take(5).toList();
-
     return RefreshIndicator(
       onRefresh: admin.loadAll,
       child: ListView(
         padding: const EdgeInsets.all(16),
+        physics: const AlwaysScrollableScrollPhysics(),
         children: [
           if (admin.error != null || admin.driversError != null) ...[
             Container(
@@ -59,7 +59,6 @@ class AdminDashboardScreen extends StatelessWidget {
             const SizedBox(height: 16),
           ],
 
-          // ── Stats ──────────────────────────────────────────────────────
           Row(
             children: [
               _StatCard(
@@ -84,36 +83,59 @@ class AdminDashboardScreen extends StatelessWidget {
               ),
             ],
           ),
+          const SizedBox(height: 12),
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+            decoration: BoxDecoration(
+              color: primary.withValues(alpha: 0.08),
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(color: primary.withValues(alpha: 0.2)),
+            ),
+            child: Row(
+              children: [
+                Icon(Icons.payments_outlined, color: primary, size: 22),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        formatGainAmount(weekGain),
+                        style: TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.w800,
+                          color: primary,
+                        ),
+                      ),
+                      const Text(
+                        'Gains livreurs (7 derniers jours)',
+                        style: TextStyle(fontSize: 11, color: _gray500),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
           const SizedBox(height: 24),
 
-          // ── Commandes récentes ─────────────────────────────────────────
           const Text(
-            'Commandes récentes',
+            'Performance livreurs',
             style: TextStyle(
               fontSize: 16,
               fontWeight: FontWeight.w700,
               color: _gray900,
             ),
           ),
+          const SizedBox(height: 4),
+          const Text(
+            'Basé sur les frais de livraison des commandes livrées',
+            style: TextStyle(fontSize: 12, color: _gray500),
+          ),
           const SizedBox(height: 12),
 
-          if (recent.isEmpty)
-            Container(
-              padding: const EdgeInsets.all(32),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(16),
-                border: Border.all(color: _gray100),
-              ),
-              child: const Center(
-                child: Text(
-                  'Aucune commande pour le moment',
-                  style: TextStyle(color: _gray500, fontSize: 14),
-                ),
-              ),
-            )
-          else
-            ...recent.map((order) => _RecentOrderTile(order: order)),
+          AdminDriverEarningsCharts(orders: admin.orders),
         ],
       ),
     );
@@ -171,115 +193,6 @@ class _StatCard extends StatelessWidget {
                 style: const TextStyle(fontSize: 11, color: Color(0xFF6B7280))),
           ],
         ),
-      ),
-    );
-  }
-}
-
-class _RecentOrderTile extends StatelessWidget {
-  final Order order;
-  const _RecentOrderTile({required this.order});
-
-  Color _statusColor(String status) {
-    switch (status) {
-      case 'CONFIRMED':
-        return const Color(0xFFF59E0B);
-      case 'SHIPPED':
-      case 'CLAIMED':
-        return const Color(0xFF3B82F6);
-      case 'DELIVERED':
-        return const Color(0xFF10B981);
-      default:
-        return const Color(0xFF6B7280);
-    }
-  }
-
-  String _statusLabel(String status) {
-    switch (status) {
-      case 'CONFIRMED':  return 'En attente';
-      case 'SHIPPED':    return 'En livraison';
-      case 'CLAIMED':    return 'Prise en charge';
-      case 'DELIVERED':  return 'Livrée';
-      default:           return status;
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final color = _statusColor(order.status);
-    return Material(
-      color: Colors.white,
-      borderRadius: BorderRadius.circular(12),
-      child: InkWell(
-        onTap: () => showAdminOrderDetail(context, order),
-        borderRadius: BorderRadius.circular(12),
-        child: Container(
-      margin: const EdgeInsets.only(bottom: 8),
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: const Color(0xFFF3F4F6)),
-      ),
-      child: Row(
-        children: [
-          Container(
-            width: 8,
-            height: 40,
-            decoration: BoxDecoration(
-              color: color,
-              borderRadius: BorderRadius.circular(4),
-            ),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  '#${order.orderNumber}  •  ${order.customerName}',
-                  style: const TextStyle(
-                      fontSize: 13,
-                      fontWeight: FontWeight.w700,
-                      color: Color(0xFF111827)),
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  order.customerAddress,
-                  style: const TextStyle(fontSize: 12, color: Color(0xFF6B7280)),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ],
-            ),
-          ),
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.end,
-            children: [
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                decoration: BoxDecoration(
-                  color: color.withValues(alpha: 0.12),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Text(
-                  _statusLabel(order.status),
-                  style: TextStyle(
-                      fontSize: 10, color: color, fontWeight: FontWeight.w700),
-                ),
-              ),
-              const SizedBox(height: 4),
-              Text(
-                '${order.total.toStringAsFixed(0)} F',
-                style: const TextStyle(
-                    fontSize: 13, fontWeight: FontWeight.w700, color: Color(0xFF111827)),
-              ),
-            ],
-          ),
-          const SizedBox(width: 4),
-          const Icon(Icons.chevron_right, size: 18, color: Color(0xFF9CA3AF)),
-        ],
-      ),
-    ),
       ),
     );
   }

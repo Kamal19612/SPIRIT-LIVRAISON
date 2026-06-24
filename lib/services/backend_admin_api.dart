@@ -12,7 +12,10 @@ class BackendAdminApi {
     int size = 200,
   }) {
     if (session.isSuperAdmin) {
-      return '${backend.origin}/api/super/orders?size=$size&sort=createdAt,desc';
+      final code = backend.storeCode.trim().toLowerCase();
+      final storeFilter =
+          code.isNotEmpty ? '&storeCode=${Uri.encodeComponent(code)}' : '';
+      return '${backend.origin}/api/delivery/global/orders?size=$size&sort=createdAt,desc$storeFilter';
     }
     final storeId = managerStoreId ?? session.storeId;
     if (storeId != null && storeId > 0) {
